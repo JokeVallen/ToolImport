@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------------------
+# UnityDevCommonLib_FrontToolsDev ignores
+#
+# This directory is the development workspace for the companion editor tool.
+# It holds C# Editor sources; it is NOT a Unity project, so there is no
+# Assets/ or ProjectSettings/ here.
+# ---------------------------------------------------------------------------
+
+# --- OS noise ---------------------------------------------------------------
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# --- editor / IDE state -----------------------------------------------------
+.vs/
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+*.swp
+*.swo
+*~
+*.user
+*.suo
+*.userprefs
+
+# --- .NET / Unity build output ---------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Ll]ibrary/
+[Tt]emp/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+*.csproj
+*.sln
+*.pdb
+*.mdb
+*.dll
+
+# --- scratch ----------------------------------------------------------------
+scratch/
+*.local.json
+*.local.md
