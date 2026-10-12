@@ -13,7 +13,7 @@ It is deliberately kept outside the registry repository:
 | Changes when | a tool is published | the frontend iterates |
 
 The two sides talk **only** through the data contract in
-[`../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.md`](../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.md)
+[`docs/FRONTEND-INTEGRATION.md`](../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.md)
 plus the JSON Schema at `../UnityDevCommonLib/schema/tool.schema.json`. Either side can be replaced as
 long as that contract holds.
 
