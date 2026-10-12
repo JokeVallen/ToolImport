@@ -1,81 +1,111 @@
-# UnityDevCommonLib Frontend Tools — development workspace
+# UnityDevCommonLib import tool
 
-This directory is the **development home of the companion editor tool** for
-[UnityDevCommonLib](../UnityDevCommonLib).
+The companion tool for [UnityDevCommonLib](../UnityDevCommonLib): browse the
+registry, verify a payload, install it, and record a receipt so it can be removed
+cleanly later.
 
-It is deliberately kept outside the registry repository:
-
-| | UnityDevCommonLib | this directory |
-| --- | --- | --- |
-| Purpose | payload format + registry contents | the editor UI that imports payloads |
-| Contents | `tool.json` manifests, sealed artifacts | C# Editor sources, UI, tests |
-| Version control | GitHub: `JokeVallen/UnityDevCommonLib` | local git only (not yet pushed) |
-| Changes when | a tool is published | the frontend iterates |
-
-The two sides talk **only** through the data contract in
-[`docs/FRONTEND-INTEGRATION.md`](../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.md)
-plus the JSON Schema at `../UnityDevCommonLib/schema/tool.schema.json`. Either side can be replaced as
-long as that contract holds.
-
----
-
-## Status
-
-Skeleton. The registry format is frozen at `schemaVersion 1` and three example payloads exist, so the
-frontend can be built against real data today:
+It is **not** a Unity package with a Unity backend. It is a Node/npm backend plus
+a thin Unity front end:
 
 ```text
-../UnityDevCommonLib/index.json                                  flat catalog to list
-../UnityDevCommonLib/payloads/core-editor-utils/tool.json         no dependencies
-../UnityDevCommonLib/payloads/editor-tool-selection-history/tool.json   has a dependency
-../UnityDevCommonLib/payloads/libs-gltf-importer/tool.json        external, metadata only
+apps/
+├─ cli/            utool -- the backend CLI. Runs with no Unity present.
+└─ unity-editor/   Editor/ -- a window that drives the CLI and renders its output.
+
+packages/
+└─ utool-core/     the backend: .utool parsing, registry validation, dependency
+                   resolution, artifact verification, install, receipts.
+                   No Unity dependency of any kind.
 ```
 
----
+## Why the backend is outside Unity
 
-## Intended layout
+| Reason | Consequence |
+| --- | --- |
+| **Compile errors stop Unity, not Node** | If the project does not compile, no editor assembly loads and the window cannot open — but `utool install` still works from a shell. This is the main practical benefit. |
+| **Cross-engine** | The backend only knows `.utool` documents and archives. Another engine needs a new front end, not a new backend. |
+| **Testable** | Resolution, verification and receipts are unit-tested with `node --test`, no editor required. |
+| **Reusable in CI** | The same CLI validates a registry in a pipeline. |
 
-```text
-UnityDevCommonLib_FrontToolsDev/
-├─ README.md
-├─ .gitignore
-├─ docs/
-│  ├─ architecture.md      component boundaries and the install pipeline
-│  └─ decisions.md         why the frontend is shaped the way it is
-├─ src/                    Editor C# sources (created when development starts)
-│  ├─ Registry/            fetch + parse index.json / tool.json
-│  ├─ Resolution/          dependency graph, version constraints, platform gate
-│  ├─ Install/             artifact verification, extraction, receipts, rollback
-│  └─ UI/                  the selection window
-└─ tests/                  unit tests for resolution and verification
-```
+The cost is a process boundary: the front end talks to the backend through
+output records instead of in-memory objects.
 
-Suggested assembly: `DevCat.UnityDevCommonLib.FrontTools.Editor` (Editor-only asmdef).
-
----
-
-## Design constraints carried over from the registry
-
-These are the rules the frontend must not soften; they are restated in full in the contract document.
-
-1. **Never import loose files** — only `unitypackage` / `zip` payloads.
-2. **Verify before writing** — `sha256` and `size` must match, or the whole plan aborts.
-3. **Reject unsafe archive entries** — absolute paths and `..` segments.
-4. **Enforce the floors** — `minUnityVersion` / `minDotNetVersion` block the install, they do not warn.
-5. **Resolve required dependencies transitively** — never auto-break a cycle.
-6. **Show the plan before executing** — files, sizes, and why each tool is included.
-7. **Write a receipt per install** — under `Library/`, so uninstall is exact and nothing local leaks
-   into version control.
-8. **Reject unknown `schemaVersion` values** rather than guessing at their shape.
-
----
-
-## Reproducing the registry locally
-
-The frontend can be developed without network access by pointing it at the sibling checkout:
+## Getting started
 
 ```pwsh
-python ..\UnityDevCommonLib\tools\validate_registry.py ..\UnityDevCommonLib
+npm install                                          # the only dependency is `yaml`
+
+node apps/cli/bin/utool.js list --registry ../UnityDevCommonLib
+node apps/cli/bin/utool.js show core-editor-utils  --registry ../UnityDevCommonLib
+node apps/cli/bin/utool.js plan editor-tool-selection-history --registry ../UnityDevCommonLib
+node apps/cli/bin/utool.js validate ../UnityDevCommonLib
+npm test
 ```
 
-A local path acts as the registry root, with the same file layout the HTTP path exposes.
+Install into a Unity project (writes files and receipts):
+
+```pwsh
+node apps/cli/bin/utool.js install core-editor-utils --project "C:\path\to\UnityProject"
+node apps/cli/bin/utool.js status  --project "C:\path\to\UnityProject"
+```
+
+Add `--dry-run` to plan and verify without writing anything.
+
+## Output modes
+
+| Mode | For | Notes |
+| --- | --- | --- |
+| default | a human at a terminal | aligned tables and prose |
+| `--json` | scripts | one JSON document on stdout |
+| `--records` | embedders (the Unity window) | one record per line, TAB separated |
+
+`--records` exists because `UnityEngine.JsonUtility` cannot deserialise a
+root-level array, and hand-writing a JSON parser inside the editor would
+duplicate logic that belongs to the backend. Record types are documented in
+`utool --help`.
+
+Never write prose to stdout in `--records` mode: the Unity front end parses that
+stream, so a stray informational line becomes a parse failure.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | success |
+| 1 | general failure (validation, digest mismatch) |
+| 2 | usage error |
+| 3 | resolution failure (unknown tool, unsatisfiable constraint, cycle) |
+| 4 | platform floor not met (Unity or .NET) |
+
+## Testing
+
+```pwsh
+npm test        # node --test packages/utool-core/test/
+```
+
+The suite covers document parsing, semver-lite constraints, registry validation,
+dependency resolution (including cycles, optional dependencies and platform
+gates), artifact verification, install with receipts, shared-file reference
+counting — and it validates the real registry in `../UnityDevCommonLib`, so a
+format change that breaks the shipped payloads fails here.
+
+The Unity C# is type-checked against minimal Unity stubs so it can be verified on
+a machine without Unity installed. That harness lives outside the repository and
+is not shipped.
+
+## Relationship to the registry repository
+
+```text
+../UnityDevCommonLib          the data: .utool documents and sealed artifacts
+this directory                the code: parsing, verification, installation
+```
+
+The only interface between them is the data contract in
+[`../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.zh-CN.md`](../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.zh-CN.md)
+(English: [`…en.md`](../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.en.md)) plus
+`schema/tool.schema.json`. Either side can be replaced as long as that holds.
+
+Not yet enabled: uninstall execution (the exact plan and reference counting are
+implemented and tested; deleting files is deliberately the last thing to switch
+on) and resolution of external git sources (the backend reports them as
+caller-resolved rather than shelling out to git).

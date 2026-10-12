@@ -1,0 +1,24 @@
+{
+  "name": "unitydevcommonlib-import-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Engine-agnostic backend for the UnityDevCommonLib import tool: parses the .utool format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
+  "license": "MIT",
+  "author": "DevCat",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "node --test \"packages/utool-core/test/*.test.js\"",
+    "cli": "node apps/cli/bin/utool.js",
+    "validate": "node apps/cli/bin/utool.js validate ../UnityDevCommonLib"
+  },
+  "dependencies": {
+    "yaml": "^2.6.1"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "DevCat.UnityDevCommonLib.ImportTool.Editor",
+  "rootNamespace": "DevCat.UnityDevCommonLib.ImportTool.Editor",
+  "references": [],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

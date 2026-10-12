@@ -1,0 +1,20 @@
+{
+  "name": "@unitydevcommonlib/utool-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Engine-agnostic core: .utool parsing, registry validation, dependency resolution, artifact verification, installation and receipts.",
+  "license": "MIT",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./format": "./src/format.js",
+    "./errors": "./src/errors.js"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "yaml": "^2.6.1"
+  }
+}
