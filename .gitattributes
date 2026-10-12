@@ -1,0 +1,25 @@
+# ---------------------------------------------------------------------------
+# UnityDevCommonLib_FrontToolsDev attributes
+#
+# Canonical line ending is LF; Git normalises on commit either way.
+# ---------------------------------------------------------------------------
+
+* text=auto eol=lf
+
+*.cs      text eol=lf
+*.asmdef  text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.ps1     text eol=lf
+*.sh      text eol=lf
+*.meta    text eol=lf
+
+# binary, never diffed or converted
+*.dll  binary
+*.pdb  binary
+*.png  binary
+*.jpg  binary
+*.unitypackage binary
+*.zip  binary
