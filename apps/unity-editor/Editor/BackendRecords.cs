@@ -176,20 +176,36 @@ namespace DevCat.ToolImport.Editor
     }
 
     /// <summary>One row of <c>utool list --records</c>.</summary>
+    /// <remarks>
+    /// Field order must match <c>apps/cli/lib/records.js</c> toolSummaries(). It is
+    /// engine-neutral: the engine-specific floors and artifacts arrive separately,
+    /// one TARGET record per engine, because a cross-engine tool has several sets
+    /// and flattening them would lose which belongs to which engine.
+    /// </remarks>
     internal sealed class AvailableTool
     {
         public string Id = string.Empty;
         public string Version = string.Empty;
         public string Type = string.Empty;
-        public string SourceKind = string.Empty;
-        public string MinUnityVersion = string.Empty;
-        public string MinDotNetVersion = string.Empty;
+        public string Engines = string.Empty;
+        public string Provides = string.Empty;
+        public string Injects = string.Empty;
         public string DisplayName = string.Empty;
         public string Tags = string.Empty;
         public string Dependencies = string.Empty;
-        public string ArtifactPath = string.Empty;
+        public string ManifestPath = string.Empty;
 
-        public bool IsExternal => SourceKind == "external";
+        /// <summary>Per-engine detail, filled from the matching TARGET records.</summary>
+        public readonly List<ToolTargetInfo> Targets = new List<ToolTargetInfo>();
+
+        public bool Supports(string engine)
+        {
+            foreach (string name in Engines.Split(','))
+            {
+                if (name.Trim() == engine) return true;
+            }
+            return false;
+        }
 
         /// <summary>Field order matches records.js toolSummaries().</summary>
         public static AvailableTool FromFields(string[] fields)
@@ -198,13 +214,13 @@ namespace DevCat.ToolImport.Editor
             if (fields.Length > 0) tool.Id = fields[0];
             if (fields.Length > 1) tool.Version = fields[1];
             if (fields.Length > 2) tool.Type = fields[2];
-            if (fields.Length > 3) tool.SourceKind = fields[3];
-            if (fields.Length > 4) tool.MinUnityVersion = fields[4];
-            if (fields.Length > 5) tool.MinDotNetVersion = fields[5];
+            if (fields.Length > 3) tool.Engines = fields[3];
+            if (fields.Length > 4) tool.Provides = fields[4];
+            if (fields.Length > 5) tool.Injects = fields[5];
             if (fields.Length > 6) tool.DisplayName = fields[6];
             if (fields.Length > 7) tool.Tags = fields[7];
             if (fields.Length > 8) tool.Dependencies = fields[8];
-            if (fields.Length > 9) tool.ArtifactPath = fields[9];
+            if (fields.Length > 9) tool.ManifestPath = fields[9];
             return tool;
         }
 
@@ -212,10 +228,64 @@ namespace DevCat.ToolImport.Editor
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "{0} ({1}) - {2}",
+                "{0} ({1}) - {2} [{3}]",
                 string.IsNullOrEmpty(DisplayName) ? Id : DisplayName,
                 Version,
-                Type);
+                Type,
+                Engines);
+        }
+    }
+
+    /// <summary>One TARGET record: one engine's floors and artifact for a tool.</summary>
+    /// <remarks>Field order matches records.js toolTargets().</remarks>
+    internal sealed class ToolTargetInfo
+    {
+        public string Engine = string.Empty;
+        public string MinEngineVersion = string.Empty;
+        /// <summary>Adapter-defined floors beyond minEngineVersion, as "key=value,...".</summary>
+        public string ExtraRequirements = string.Empty;
+        public string ArtifactType = string.Empty;
+        public string ArtifactFormat = string.Empty;
+        public string ArtifactPath = string.Empty;
+        public string ContentRoot = string.Empty;
+        public string TargetPath = string.Empty;
+        public bool EditorOnly;
+        public string ExternalUrl = string.Empty;
+        public string ExternalRef = string.Empty;
+
+        public bool IsExternal => ArtifactType == "external";
+
+        public static ToolTargetInfo FromFields(string[] fields)
+        {
+            var target = new ToolTargetInfo();
+            if (fields.Length > 0) target.Engine = fields[0];
+            if (fields.Length > 1) target.MinEngineVersion = fields[1];
+            if (fields.Length > 2) target.ExtraRequirements = fields[2];
+            if (fields.Length > 3) target.ArtifactType = fields[3];
+            if (fields.Length > 4) target.ArtifactFormat = fields[4];
+            if (fields.Length > 5) target.ArtifactPath = fields[5];
+            if (fields.Length > 6) target.ContentRoot = fields[6];
+            if (fields.Length > 7) target.TargetPath = fields[7];
+            if (fields.Length > 8) target.EditorOnly = fields[8] == "true";
+            if (fields.Length > 9) target.ExternalUrl = fields[9];
+            if (fields.Length > 10) target.ExternalRef = fields[10];
+            return target;
+        }
+
+        /// <summary>Human-readable requirement summary, adapter keys included.</summary>
+        public string RequirementsSummary()
+        {
+            var text = new StringBuilder();
+            if (!string.IsNullOrEmpty(MinEngineVersion))
+            {
+                text.Append("min engine ").Append(MinEngineVersion);
+            }
+            if (!string.IsNullOrEmpty(ExtraRequirements))
+            {
+                if (text.Length > 0) text.Append(", ");
+                text.Append(ExtraRequirements.Replace(",", ", "));
+            }
+            return text.Length > 0 ? text.ToString() : "(none declared)";
         }
     }
 }

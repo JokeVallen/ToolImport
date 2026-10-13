@@ -47,41 +47,72 @@ export function toolSummaries(tools) {
       tool.id,
       tool.version,
       tool.type,
-      tool.sourceKind,
-      tool.minUnityVersion,
-      tool.minDotNetVersion,
+      (tool.engines ?? []).join(','),
+      (tool.provides ?? []).join(','),
+      (tool.injects ?? []).join(','),
       tool.displayName,
       (tool.tags ?? []).join(','),
       (tool.dependencies ?? []).map((dep) => `${dep.id}${dep.version ? `@${dep.version}` : ''}`).join(','),
-      tool.artifactPath ?? '',
+      tool.manifestPath ?? '',
+    ]);
+  }
+}
+
+/**
+ * Per-engine detail: one TARGET record per engine the tool declares.
+ *
+ * Engine-specific data is reported per target rather than flattened into DETAIL,
+ * because a cross-engine tool has several sets of floors and artifacts and
+ * flattening them would lose which belongs to which engine.
+ *
+ * @param {import('../../packages/utool-core/src/manifest.js').ToolTarget[]} targets
+ */
+export function toolTargets(targets) {
+  for (const target of targets) {
+    record('TARGET', [
+      target.engine,
+      target.minEngineVersion,
+      Object.entries(target.extraRequirements)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(','),
+      target.type,
+      target.format ?? '',
+      target.artifactPath ?? '',
+      target.contentRoot ?? '',
+      target.targetPath ?? '',
+      target.editorOnly ? 'true' : 'false',
+      target.external?.url ?? '',
+      target.external?.ref ?? '',
     ]);
   }
 }
 
 /**
  * @param {Record<string, any>} manifest a raw .utool document
+ * @param {import('../../packages/utool-core/src/manifest.js').ToolManifest} [model]
  */
-export function toolDetail(manifest) {
-  const source = manifest.source ?? {};
+export function toolDetail(manifest, model) {
   record('DETAIL', ['id', manifest.id]);
   record('DETAIL', ['displayName', manifest.displayName]);
   record('DETAIL', ['type', manifest.type]);
   record('DETAIL', ['version', manifest.version]);
   record('DETAIL', ['description', manifest.description]);
-  record('DETAIL', ['minUnityVersion', manifest.minUnityVersion]);
-  record('DETAIL', ['minDotNetVersion', manifest.minDotNetVersion]);
-  record('DETAIL', ['sourceKind', source.kind]);
-  record('DETAIL', ['sourceType', source.type]);
-  record('DETAIL', ['artifactPath', source.artifactPath]);
-  record('DETAIL', ['artifactFormat', source.artifactFormat]);
-  record('DETAIL', ['gitUrl', source.url]);
-  record('DETAIL', ['gitRef', source.ref]);
+  record('DETAIL', ['engines', (model?.engines ?? Object.keys(manifest.targets ?? {})).join(',')]);
+  record('DETAIL', ['provides', (manifest.provides ?? []).join(',')]);
+  record('DETAIL', ['injects', (manifest.injects ?? []).join(',')]);
   record('DETAIL', ['license', manifest.license]);
   record('DETAIL', ['author', manifest.author]);
+  record('DETAIL', ['homepage', manifest.homepage]);
   record('DETAIL', ['deprecated', manifest.deprecated === true ? 'true' : 'false']);
 
   for (const dep of manifest.dependencies ?? []) {
-    record('DEPENDENCY', [dep.id, dep.version ?? '', dep.optional ? 'optional' : 'required', dep.reason ?? '']);
+    record('DEPENDENCY', [
+      dep.id,
+      dep.version ?? '',
+      dep.optional ? 'optional' : 'required',
+      dep.reason ?? '',
+      (dep.engines ?? []).join(','),
+    ]);
   }
   for (const file of manifest.files ?? []) {
     record('WILLINSTALL', [file]);
@@ -106,19 +137,19 @@ export function installPlan(report, options = {}) {
     record('PLANTOOL', [
       tool.id,
       tool.version,
-      tool.sourceKind,
+      tool.engine,
+      tool.artifactType ?? '',
+      tool.artifactFormat ?? '',
       tool.size ?? '',
       tool.sha256 ?? '',
-      tool.artifactFormat ?? '',
       tool.contentRoot ?? '',
       tool.editorOnly ? 'true' : 'false',
       tool.installedBecause.join(','),
       tool.skipped ?? '',
     ]);
-    for (const file of tool.files) {
-      // Folder entries carry no bytes and are excluded from the file list
-      // upstream, so every entry here is a real destination.
-      if (file.path) record('PLANFILE', [tool.id, file.path]);
+    for (const item of tool.items) {
+      // Directory records carry no bytes and are not files to report.
+      if (item.path) record('PLANFILE', [tool.id, item.path]);
     }
   }
   record('PLAN', [
