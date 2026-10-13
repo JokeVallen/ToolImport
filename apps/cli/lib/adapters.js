@@ -20,6 +20,7 @@ import { createCoreContainerRegistry } from '@unitydevcommonlib/utool-core';
  */
 const ADAPTERS = {
   unity: () => import('@devcat/provider-engine-unity'),
+  godot: () => import('@devcat/provider-engine-godot'),
 };
 
 /** @returns {string[]} engine names this build can serve */

@@ -169,14 +169,20 @@ function createArchiveHandler(format) {
     },
     async extract(bytes, artifact, context) {
       const { items } = readArchive(bytes, format, artifact);
+      const written = [];
       for (const item of items) {
         if (item.directory) {
           await context.ensureDirectory(context.resolve(item.path));
           continue;
         }
-        await context.writeItem(item, bytes);
+        await context.writeItem(item);
+        // Report the PROJECT-RELATIVE destination, not the archive-relative one. A
+        // receipt has to name where a file actually is, or uninstall looks for it in
+        // the wrong place. When a contentRoot is set the two differ, which is exactly
+        // the case that previously went wrong.
+        written.push({ path: context.relative(item.path), size: item.size });
       }
-      return items;
+      return written;
     },
   };
 }

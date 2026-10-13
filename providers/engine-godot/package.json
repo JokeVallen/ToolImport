@@ -1,0 +1,18 @@
+{
+  "name": "@devcat/provider-engine-godot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Godot engine adapter: Godot version comparison and the requirement keys it owns. Contributes no container handler, because Godot addons are ordinary archives the core already opens.",
+  "license": "MIT",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "@unitydevcommonlib/utool-core": "*"
+  }
+}
