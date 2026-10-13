@@ -8,8 +8,9 @@
  */
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -105,6 +106,99 @@ test('shared files survive until the last claimant leaves', async (t) => {
   const both = await store.planUninstall(['lib-a', 'lib-b']);
   assert.deepEqual(both.delete, ['Assets/LibA/Only.cs', 'Assets/LibB/Only.cs', 'Assets/Shared/Common.cs']);
   assert.deepEqual(both.keep, []);
+});
+
+test('a file the user has edited is reported, not deleted', async (t) => {
+  // This is the distinction the no-pollution claim rests on. A receipt can say exactly
+  // which file it wrote and what those bytes were; if the digest on disk no longer
+  // matches, the file is no longer ours, and removing it would destroy the user's work.
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  const expected = createHash('sha256').update(Buffer.from('original')).digest('hex');
+
+  await mkdir(path.join(project, 'Assets/Lib'), { recursive: true });
+  await writeFile(path.join(project, 'Assets/Lib/Mine.cs'), 'original');
+  await writeFile(path.join(project, 'Assets/Lib/Untouched.cs'), 'untouched');
+
+  const untouched = createHash('sha256').update(Buffer.from('untouched')).digest('hex');
+
+  await store.write(
+    baseReceipt({
+      toolId: 'lib-a',
+      version: '1.0.0',
+      artifactSha256: 'e'.repeat(64),
+      installedFiles: ['Assets/Lib/Mine.cs', 'Assets/Lib/Untouched.cs'],
+      installedFileHashes: {
+        'Assets/Lib/Mine.cs': expected,
+        'Assets/Lib/Untouched.cs': untouched,
+      },
+    }),
+  );
+
+  // Before the edit, both files are simply deletable.
+  const clean = await store.planUninstall(['lib-a']);
+  assert.deepEqual(clean.modified, []);
+  assert.deepEqual(clean.delete, ['Assets/Lib/Mine.cs', 'Assets/Lib/Untouched.cs']);
+
+  // The user edits one of them.
+  await writeFile(path.join(project, 'Assets/Lib/Mine.cs'), 'edited by hand');
+
+  const after = await store.planUninstall(['lib-a']);
+  assert.equal(after.modified.length, 1, `expected one modified file, got ${JSON.stringify(after.modified)}`);
+  assert.equal(after.modified[0].file, 'Assets/Lib/Mine.cs');
+  assert.equal(after.modified[0].expected, expected);
+  assert.notEqual(after.modified[0].actual, expected);
+  assert.deepEqual(after.delete, ['Assets/Lib/Untouched.cs'], 'the edited file must not be scheduled for deletion');
+});
+
+test('a file already removed from disk is reported separately', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await store.write(
+    baseReceipt({
+      toolId: 'lib-gone',
+      version: '1.0.0',
+      artifactSha256: 'f'.repeat(64),
+      installedFiles: ['Assets/Lib/Vanished.cs'],
+      installedFileHashes: { 'Assets/Lib/Vanished.cs': 'a'.repeat(64) },
+    }),
+  );
+
+  const plan = await store.planUninstall(['lib-gone']);
+  assert.deepEqual(plan.alreadyGone, ['Assets/Lib/Vanished.cs']);
+  assert.deepEqual(plan.modified, []);
+  // Still listed for removal: deleting a path that does not exist is a no-op, and
+  // omitting it would make the plan disagree with the receipt.
+  assert.deepEqual(plan.delete, ['Assets/Lib/Vanished.cs']);
+});
+
+test('a receipt with no recorded digests cannot judge, so it deletes', async (t) => {
+  // Receipts written before per-file digests existed must keep working: absent a
+  // digest there is nothing to compare, and guessing "modified" would block every
+  // uninstall of an older install.
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await mkdir(path.join(project, 'Assets/Lib'), { recursive: true });
+  await writeFile(path.join(project, 'Assets/Lib/Old.cs'), 'whatever');
+
+  await store.write(
+    baseReceipt({
+      toolId: 'lib-legacy',
+      version: '1.0.0',
+      artifactSha256: '1'.repeat(64),
+      installedFiles: ['Assets/Lib/Old.cs'],
+    }),
+  );
+
+  const plan = await store.planUninstall(['lib-legacy']);
+  assert.deepEqual(plan.modified, []);
+  assert.deepEqual(plan.delete, ['Assets/Lib/Old.cs']);
 });
 
 // ---------------------------------------------------------------------------

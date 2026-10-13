@@ -18,6 +18,7 @@
  * re-fetched to do so.
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -94,6 +95,10 @@ export class ReceiptStore {
       registryCommit: receipt.registryCommit ?? null,
       installedEngines: [...(receipt.installedEngines ?? [])].sort(),
       installedFiles: [...(receipt.installedFiles ?? [])].sort(),
+    // Per-file digests as written, so a later uninstall can tell our file from one the
+    // user has since edited. Absent for receipts written before this was recorded; the
+    // uninstall plan treats a missing digest as "cannot judge" rather than as drift.
+    installedFileHashes: receipt.installedFileHashes ?? {},
       installedByTools: receipt.installedByTools ?? ['user'],
       previousSha256: previous,
     };
@@ -193,20 +198,65 @@ export class ReceiptStore {
 
     const toDelete = [];
     const toKeep = [];
+    /** Files recorded in a receipt that are no longer on disk. */
+    const alreadyGone = [];
+    /**
+     * Files whose bytes differ from what was installed.
+     *
+     * These are the interesting ones. A file we installed and the user then edited is
+     * no longer ours to remove silently: deleting it destroys their work, and keeping
+     * it silently leaves an orphan behind. Neither can be decided by the tool, so it
+     * reports the drift and lets a human choose. This is what turns "no pollution"
+     * from a claim into something checkable.
+     * @type {{file: string, expected: string|null, actual: string}[]}
+     */
+    const modified = [];
+
+    /** Resolve a recorded relative path against the project root. */
+    const absoluteOf = (relative) => path.join(this.projectRoot, relative);
+
+    async function digestOf(relative) {
+      try {
+        return sha256(await readFile(absoluteOf(relative)));
+      } catch {
+        return null;
+      }
+    }
+
     for (const receipt of all.filter((entry) => going.has(entry.toolId))) {
+      const recorded = receipt.installedFileHashes ?? {};
       for (const file of receipt.installedFiles ?? []) {
         const normalized = normalize(file);
         const claimedBy = survivors.get(normalized);
         if (claimedBy && claimedBy.length > 0) {
           toKeep.push({ file: normalized, claimedBy: [...claimedBy].sort() });
-        } else if (!toDelete.includes(normalized)) {
-          toDelete.push(normalized);
+          continue;
         }
+
+        const onDisk = await digestOf(normalized);
+        const expected = recorded[normalized] ?? null;
+
+        if (onDisk === null) {
+          // Not on disk. Harmless to include in the delete list - removing a path that
+          // does not exist is a no-op - but recorded separately, because a receipt that
+          // claims a file which is gone means either the user removed it or an earlier
+          // uninstall was partial, and the count should not be quietly short.
+          alreadyGone.push(normalized);
+        } else if (expected !== null && expected !== onDisk) {
+          // Ours when installed, theirs since. Not ours to delete silently, and not
+          // something to leave behind silently either, so it is reported for a human.
+          modified.push({ file: normalized, expected, actual: onDisk });
+          continue;
+        }
+
+        if (!toDelete.includes(normalized)) toDelete.push(normalized);
       }
     }
 
     toDelete.sort();
-    return { delete: toDelete, keep: toKeep, missingReceipts };
+    alreadyGone.sort();
+    modified.sort((a, b) => a.file.localeCompare(b.file));
+    return { delete: toDelete, keep: toKeep, missingReceipts, alreadyGone, modified };
   }
 
   /**
@@ -293,6 +343,11 @@ export class ReceiptStore {
 /** Normalise a project-relative path for comparison across platforms. */
 function normalize(file) {
   return String(file).replace(/\\/g, '/');
+}
+
+/** Lower-case hex sha256 of a buffer, matching the digest form used in manifests. */
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 export { readFile };

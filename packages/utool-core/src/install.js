@@ -20,7 +20,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { ArtifactError } from './errors.js';
@@ -173,6 +173,23 @@ export async function executeInstall(report, options) {
       .filter((item) => !item.directory)
       .map((item) => String(item.path).replace(/\\/g, '/'));
 
+    // Record each installed file's digest so a later uninstall can tell "this is the
+    // file we installed" from "the user has edited this since". Without it, uninstall
+    // cannot distinguish our file from the user's work, and the no-pollution claim
+    // holds only until somebody touches something.
+    //
+    // The digest is taken from the file on disk rather than from the archive entry, so
+    // it also proves the write actually landed with the bytes we intended.
+    const fileHashes = {};
+    for (const file of files) {
+      try {
+        fileHashes[file] = sha256Of(await readFile(path.join(projectRoot, file)));
+      } catch {
+        // A file we cannot read back is not recordable; uninstall will treat it as
+        // already gone rather than as modified.
+      }
+    }
+
     installed.push({ id: tool.id, engine: tool.engine, files });
 
     const receipt = byTool.get(tool.id) ?? {
@@ -180,12 +197,14 @@ export async function executeInstall(report, options) {
       sha256: tool.sha256 ?? sha256Of(artifactBytes),
       format: tool.artifactFormat,
       files: [],
+      fileHashes: {},
       engines: [],
       installedBecause: tool.installedBecause,
     };
     for (const file of files) {
       if (!receipt.files.includes(file)) receipt.files.push(file);
     }
+    Object.assign(receipt.fileHashes, fileHashes);
     if (!receipt.engines.includes(tool.engine)) receipt.engines.push(tool.engine);
     byTool.set(tool.id, receipt);
   }
@@ -201,6 +220,7 @@ export async function executeInstall(report, options) {
       registryCommit: options.registryCommit ?? null,
       installedEngines: [...receipt.engines].sort(),
       installedFiles: [...receipt.files].sort(),
+      installedFileHashes: receipt.fileHashes,
       installedByTools: receipt.installedBecause,
     });
   }
