@@ -4,19 +4,34 @@ The companion tool for [DevCatToolRegistry](../DevCatToolRegistry): browse the
 registry, verify a payload, install it, and record a receipt so it can be removed
 cleanly later.
 
-It is **not** a Unity package with a Unity backend. It is a Node/npm backend plus
-a thin Unity front end:
+It is **not** a Unity package with a Unity backend. It is an engine-neutral
+Node/npm backend plus, per engine, an adapter and a thin editor front end:
 
 ```text
-apps/
-├─ cli/            utool -- the backend CLI. Runs with no Unity present.
-└─ unity-editor/   Editor/ -- a window that drives the CLI and renders its output.
-
 packages/
-└─ utool-core/     the backend: .utool parsing, registry validation, dependency
-                   resolution, artifact verification, install, receipts.
-                   No Unity dependency of any kind.
+└─ utool-core/            the backend core: .utool parsing, registry validation,
+                          dependency and capability resolution, artifact
+                          verification, install, receipts. NO engine dependency.
+
+providers/
+├─ engine-unity/          Unity: the unitypackage container, Unity version and
+│                         .NET API level comparison.
+└─ engine-godot/          Godot: Godot version comparison. Contributes no container
+                          handler, because Godot addons are ordinary archives the
+                          core already opens.
+
+apps/
+└─ cli/                   utool -- the CLI. Runs with no Unity present.
+
+frontends/
+└─ unity-editor/          Editor/ -- the Unity window that drives the CLI.
 ```
+
+The asymmetry between the two providers is the point of the seam: an engine whose
+packages are plain archives adds only engine knowledge, and an engine with a
+proprietary package format adds only a container handler. Either way the core is
+untouched, and `knownEngines()` in `apps/cli/lib/adapters.js` is the single place
+that says which engines a build can serve.
 
 ## Why the backend is outside Unity
 
