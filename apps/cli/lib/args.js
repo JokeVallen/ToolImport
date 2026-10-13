@@ -9,6 +9,7 @@
 
 /** Flags that take no value. */
 const BOOLEAN_FLAGS = new Set([
+  'auto-provider',
   'dry-run',
   'json',
   'records',

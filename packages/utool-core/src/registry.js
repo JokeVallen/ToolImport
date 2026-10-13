@@ -270,12 +270,17 @@ export async function validateRegistry(root, options) {
       providers.get(capability).push(manifest.id);
     }
   }
+  // Multiple providers in the REGISTRY are legitimate alternatives: injects names
+  // a capability precisely so a user may choose among them. The real conflict is
+  // inside one PLAN, which the resolver refuses, because two providers installed into
+  // one project is what leaves a consumer unable to say which it received.
   for (const [capability, owners] of providers) {
     if (owners.length > 1) {
-      bag.error(
-        'E-CAP-CONFLICT',
-        `capability '${capability}' is provided by ${owners.length} tools ` +
-          `(${[...owners].sort().join(', ')}); a consumer of it cannot know which provider it gets`,
+      bag.warn(
+        'W-CAP-MULTIPLE',
+        `capability '${capability}' has ${owners.length} providers ` +
+          `(${[...owners].sort().join(', ')}); installing more than one of them at once will be ` +
+          `refused, because a consumer cannot tell which provider it got`,
       );
     }
   }

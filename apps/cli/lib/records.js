@@ -120,6 +120,26 @@ export function toolDetail(manifest, model) {
 }
 
 /**
+ * Capability providers the resolver chose on the caller's behalf.
+ *
+ * Reported separately from the plan because a user needs to see that a tool was
+ * added for a capability rather than because they asked for it, and what else could
+ * have satisfied it.
+ *
+ * @param {{capability: string, provider: string, neededBy: string, alternatives: string[]}[]} choices
+ */
+export function providerChoices(choices = []) {
+  for (const choice of choices) {
+    record('PROVIDER', [
+      choice.capability,
+      choice.provider,
+      choice.neededBy,
+      (choice.alternatives ?? []).join(','),
+    ]);
+  }
+}
+
+/**
  * @param {{code: string, message: string}[]} problems
  */
 export function problems(problems) {

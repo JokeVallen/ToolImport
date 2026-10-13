@@ -34,6 +34,12 @@ import { toManifest, ToolManifest } from './manifest.js';
  *   engine-specific floor comparison, supplied by the adapter
  * @property {string[]} [alreadySelected]
  * @property {(id: string) => boolean} [isInstalled]
+ * @property {boolean} [autoResolveInjects] when true, an `injects` entry with no
+ *   provider in the plan may have one selected for it. Off by default: silently
+ *   adding a tool the user did not ask for is worse than explaining the gap.
+ * @property {(capability: string) => Promise<(string|{id: string})[]>} [listProviders]
+ *   which tools advertise a capability. Supplied by the caller so the core need not
+ *   hold an index or a source.
  */
 
 export const DEFAULT_ENGINE = 'unity';
@@ -155,6 +161,18 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
     await visit(id, 'user');
   }
 
+  // Capability-driven providers, when the caller allows the resolver to choose.
+  // This must happen BEFORE the capability check below, because choosing a provider
+  // is precisely what makes an inject satisfiable.
+  const providerChoices = [];
+  if (options.autoResolveInjects) {
+    await resolveInjectedCapabilities({
+      manifests, order, engine, engines, fetchManifest, requiredBy,
+      listProviders: options.listProviders ?? (async () => []),
+      providerChoices, problems,
+    });
+  }
+
   checkCapabilities(manifests, order, problems, skipped);
 
   const steps = order
@@ -170,7 +188,131 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
       };
     });
 
-  return { steps, problems, skipped, exitCode: exitCodeFor(problems) };
+  return { steps, problems, skipped, providerChoices, exitCode: exitCodeFor(problems) };
+}
+
+/**
+ * Satisfy `injects` entries by selecting a provider for each capability, and record
+ * why each was pulled in.
+ *
+ * This is what makes capabilities more than documentation. `dependencies` pins a
+ * tool id, so a consumer is welded to one provider; `injects` names a capability, so
+ * the registry may choose the provider - and the user can later swap it without
+ * editing the consumer. That indirection is the whole point, and it is worthless if
+ * nothing ever acts on it.
+ *
+ * A provider is only chosen when the caller opts in, and only as a last resort:
+ * silently pulling in a tool the user did not ask for would be worse than failing
+ * with an explanation.
+ *
+ * @param {object} context
+ */
+async function resolveInjectedCapabilities(context) {
+  const {
+    manifests, order, engine, engines,
+    fetchManifest, listProviders, providerChoices, problems, requiredBy,
+  } = context;
+
+  /** capability -> provider id, for the ones this pass selected */
+  const chosenBy = new Map();
+
+  const idOf = (entry) => (typeof entry === 'string' ? entry : entry?.id);
+
+  // Snapshot the order first: the loop below appends to it as it selects providers.
+  for (const id of [...order]) {
+    const consumer = manifests.get(id);
+    if (!consumer) continue;
+
+    for (const capability of consumer.injects) {
+      // Someone in the plan already provides it, or we already chose a provider.
+      if (chosenBy.has(capability)) continue;
+      const alreadyProvided = [...manifests.values()].some((manifest) =>
+        manifest.provides.includes(capability),
+      );
+      if (alreadyProvided) continue;
+
+      const candidates = (await listProviders(capability)).map(idOf).filter(Boolean);
+      if (candidates.length === 0) continue; // checkCapabilities reports this
+
+      // Deterministic choice, so the same selection always produces the same plan
+      // and therefore the same receipt.
+      const sorted = [...new Set(candidates)].sort();
+      const pickedId = sorted[0];
+
+      let provider;
+      try {
+        provider = toManifest(await fetchManifest(pickedId));
+      } catch (cause) {
+        problems.push({
+          code: 'E-CAP-PROVIDER',
+          message: `cannot load provider '${pickedId}' for capability '${capability}': ${cause.message}`,
+          capability,
+        });
+        continue;
+      }
+
+      if (!engines.some((candidate) => provider.supports(candidate))) {
+        problems.push({
+          code: 'E-CAP-PROVIDER-ENGINE',
+          message:
+            `the only provider '${pickedId}' of capability '${capability}' does not support ` +
+            `${engines.join(' or ')}`,
+          capability,
+          provider: pickedId,
+        });
+        continue;
+      }
+      if (!satisfiesEngineDeps(provider, engine, manifests, problems)) continue;
+
+      chosenBy.set(capability, pickedId);
+      manifests.set(pickedId, provider);
+      order.push(pickedId);
+      if (!requiredBy.has(pickedId)) requiredBy.set(pickedId, new Set());
+      requiredBy.get(pickedId).add(id);
+
+      providerChoices.push({
+        capability,
+        provider: pickedId,
+        neededBy: id,
+        alternatives: sorted.slice(1),
+      });
+    }
+  }
+}
+
+/**
+ * Does a newly selected provider's own dependency set resolve?
+ *
+ * Cheap check, done here rather than by recursing: a provider chosen for a
+ * capability is an addition to a plan already under construction, so a broken
+ * dependency in it should be reported as a provider problem rather than silently
+ * extending the graph.
+ *
+ * @returns {boolean} false when a problem was recorded
+ */
+function satisfiesEngineDeps(provider, engine, manifests, problems) {
+  for (const dep of provider.dependenciesFor(engine)) {
+    const target = manifests.get(dep.id);
+    if (!target) {
+      problems.push({
+        code: 'E-CAP-PROVIDER-DEP',
+        message:
+          `provider '${provider.id}' depends on '${dep.id}', which is not in the plan; ` +
+          `add it explicitly`,
+        toolId: provider.id,
+      });
+      return false;
+    }
+    if (!satisfies(target.version, dep.version)) {
+      problems.push({
+        code: 'E-DEP-VERSION',
+        message: `${provider.id} requires ${dep.id} ${dep.version} but the registry provides ${target.version}`,
+        toolId: provider.id,
+      });
+      return false;
+    }
+  }
+  return true;
 }
 
 /** @returns {Promise<ToolManifest|null>} */
