@@ -106,7 +106,7 @@ frontends/<engine>-editor  各引擎的可视化前端（当前只有 Unity）
 
 | 适配器 | 容器处理器 | 需求比较 | 说明 |
 | --- | --- | --- | --- |
-| `engine-unity` | `unitypackage` | `minEngineVersion`、`minRuntimeVersion` | Unity 包体是专有格式，所以需要处理器 |
+| `engine-unity` | `unitypackage` | `minEngineVersion`、`minRuntimeVersion` | Unity 制品是专有格式，所以需要处理器 |
 | `engine-godot` | **无** | `minEngineVersion` | Godot 插件就是普通归档，核心本来就能打开 |
 
 `meetsRequirement(engine, key, value, host)` 返回三态，**这个区分是刻意的**：
