@@ -13,7 +13,7 @@
  * container. The core knows only general archives plus the artifact *kinds*.
  */
 
-export const FORMAT_VERSION = '2';
+export const FORMAT_VERSION = '3';
 
 /** Document discriminators. A reader must reject a `kind` it does not know. */
 export const KIND = Object.freeze({

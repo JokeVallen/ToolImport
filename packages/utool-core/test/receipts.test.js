@@ -31,7 +31,7 @@ function baseReceipt(overrides) {
   };
 }
 
-test('a receipt is written as a valid v2 document and read back', async (t) => {
+test('a receipt is written as a valid v3 document and read back', async (t) => {
   const project = await tempProject();
   t.after(() => rm(project, { recursive: true, force: true }));
 
@@ -47,7 +47,7 @@ test('a receipt is written as a valid v2 document and read back', async (t) => {
 
   const receipt = await store.read('demo');
   assert.equal(receipt.kind, 'receipt');
-  assert.equal(receipt.formatVersion, '2');
+  assert.equal(receipt.formatVersion, '3');
   assert.equal(receipt.toolId, 'demo');
   assert.deepEqual(receipt.installedEngines, ['unity']);
   assert.deepEqual(receipt.installedFiles, ['Assets/Demo/One.cs', 'Assets/Demo/Two.cs']);

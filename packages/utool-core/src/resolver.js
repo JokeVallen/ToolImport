@@ -76,6 +76,20 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
   const skipped = [];
   /** @type {string[]} */
   const order = [];
+  /**
+   * Which version was chosen for each constrained dependency, and what else was
+   * available. Only meaningful once a tool publishes more than one version, but
+   * collected always so the plan can state it without a second pass.
+   * @type {object[]}
+   */
+  const dependencyChoices = [];
+  /**
+   * The concrete version each tool in the plan should install. Populated by dependency
+   * constraints as they are read, and consulted when the steps are built, so a
+   * constraint that names an older version actually installs that version.
+   * @type {Map<string, string>}
+   */
+  const versionsRequested = new Map();
 
   const seen = new Set();
   const inProgress = new Set();
@@ -145,7 +159,13 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
       const target = manifests.get(dep.id) ?? (await safeFetch(dep.id, fetchManifest, problems));
       if (!target) continue;
 
-      if (!satisfiesSafely(target.version, dep.version, dep.id, id, problems)) continue;
+      // A manifest now publishes several versions, so a constraint picks one. The
+      // chosen version has to be remembered and planned from, because reading the
+      // manifest's default could install a version the constraint excluded.
+      const chosen = resolveDependencyVersion(
+        target, dep, id, problems, dependencyChoices,
+      );
+      if (!chosen) continue;
 
       await visit(dep.id, id);
     }
@@ -158,7 +178,17 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
   };
 
   for (const id of requestedIds) {
-    await visit(id, 'user');
+    // An explicit `id@version` request pins that version for the whole plan, before
+    // any dependency constraint narrows it further.
+    const at = id.indexOf('@');
+    if (at > 0) {
+      const bare = id.slice(0, at);
+      const wanted = id.slice(at + 1);
+      if (wanted) versionsRequested.set(bare, wanted);
+      await visit(bare, 'user');
+    } else {
+      await visit(id, 'user');
+    }
   }
 
   // Capability-driven providers, when the caller allows the resolver to choose.
@@ -180,15 +210,37 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
     .map((id) => {
       const manifest = manifests.get(id);
       const because = [...(requiredBy.get(id) ?? new Set())];
+
+      // The version this step installs. A dependency constraint resolved to a concrete
+      // version above pins it; a chain of constraints narrows step by step, so the
+      // last one to write wins only after being narrowed against the rest. Without a
+      // constraint the manifest's own default applies.
+      const requested = versionsRequested.get(id);
+      let pinned = manifest;
+      if (requested) {
+        const picked = manifest.resolve([requested]);
+        // resolve() returning nothing means the pin is unsatisfiable; that was already
+        // reported where the constraint was read, so fall back rather than throw here.
+        if (picked) pinned = manifest.at(picked.version);
+      }
+
       return {
-        manifest,
+        manifest: pinned,
+        requestedVersion: requested ?? null,
         engines: engines.filter((candidate) => manifest.supports(candidate)),
         installedBecause: because.length > 0 ? because.sort() : ['user'],
         alreadyInstalled: isInstalled ? isInstalled(id) : false,
       };
     });
 
-  return { steps, problems, skipped, providerChoices, exitCode: exitCodeFor(problems) };
+  return {
+    steps,
+    problems,
+    skipped,
+    providerChoices,
+    dependencyChoices,
+    exitCode: exitCodeFor(problems),
+  };
 }
 
 /**
@@ -303,16 +355,102 @@ function satisfiesEngineDeps(provider, engine, manifests, problems) {
       });
       return false;
     }
-    if (!satisfies(target.version, dep.version)) {
+    // Multi-version aware: the constraint must be satisfiable by SOME published
+    // version, not by the manifest's default specifically.
+    let ok = false;
+    try {
+      ok = Boolean(target.resolve(dep.version ? [dep.version] : []));
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
       problems.push({
         code: 'E-DEP-VERSION',
-        message: `${provider.id} requires ${dep.id} ${dep.version} but the registry provides ${target.version}`,
+        message:
+          `${provider.id} requires ${dep.id} ${dep.version ?? '*'} but the registry publishes ` +
+          `${target.versionNumbers.join(', ')}`,
         toolId: provider.id,
       });
       return false;
     }
   }
   return true;
+}
+
+/**
+ * Pick the version of a dependency that satisfies a constraint, and record it.
+ *
+ * This is where multi-version support actually bites. A constraint that names an older
+ * version must select that version, not the manifest's default; otherwise a consumer
+ * asking for `^0.9.0` would silently receive 1.0.0 and the receipt would describe
+ * something the consumer never agreed to.
+ *
+ * @returns {import('./manifest.js').ToolVersion|null} the chosen release
+ */
+function resolveDependencyVersion(manifest, dep, dependentId, problems, dependencyChoices) {
+  if (!manifest.hasVariants) {
+    // One published version: the constraint either admits it or is reported, which is
+    // the pre-multi-version behaviour and worth keeping explicit.
+    try {
+      if (satisfies(manifest.version, dep.version)) return manifest.entry;
+    } catch (cause) {
+      problems.push({
+        code: 'E-DEP-CONSTRAINT',
+        message: `${dependentId} declares an invalid constraint for ${dep.id}: ${cause.message}`,
+        toolId: dependentId,
+      });
+      return null;
+    }
+    problems.push({
+      code: 'E-DEP-VERSION',
+      message: `${dependentId} requires ${dep.id} ${dep.version} but the registry provides ${manifest.version}`,
+      toolId: dependentId,
+    });
+    return null;
+  }
+
+  let chosen;
+  try {
+    chosen = manifest.resolve(dep.version ? [dep.version] : []);
+  } catch (cause) {
+    problems.push({
+      code: 'E-DEP-CONSTRAINT',
+      message: `${dependentId} declares an invalid constraint for ${dep.id}: ${cause.message}`,
+      toolId: dependentId,
+    });
+    return null;
+  }
+
+  if (!chosen) {
+    problems.push({
+      code: 'E-DEP-VERSION',
+      message:
+        `${dependentId} requires ${dep.id} ${dep.version} but the registry publishes ` +
+        `${manifest.versionNumbers.join(', ')}`,
+      toolId: dependentId,
+    });
+    return null;
+  }
+
+  // Pin the version this constraint settled on, narrowed against any pin an earlier
+  // consumer already set: two consumers constraining the same dependency must agree,
+  // and the intersection is what the plan installs.
+  const previous = versionsRequested.get(dep.id);
+  const constraints = [previous, dep.version].filter(Boolean);
+  const narrowed = constraints.length > 0 ? manifest.resolve(constraints) : manifest.resolve([]);
+  if (narrowed) versionsRequested.set(dep.id, narrowed.version);
+
+  // Record the choice so the plan can name it, which matters as soon as a tool has
+  // more than one version: "the plan says core-editor-utils 0.9.0" is information a
+  // user cannot recover from the plan otherwise.
+  dependencyChoices.push({
+    dependency: dep.id,
+    requiredBy: dependentId,
+    constraint: dep.version ?? '*',
+    chosen: chosen.version,
+    alternatives: manifest.versionNumbers.filter((v) => v !== chosen.version),
+  });
+  return chosen;
 }
 
 /** @returns {Promise<ToolManifest|null>} */
@@ -328,25 +466,6 @@ async function safeFetch(id, fetchManifest, problems) {
     });
     return null;
   }
-}
-
-function satisfiesSafely(version, constraint, depId, dependentId, problems) {
-  try {
-    if (satisfies(version, constraint)) return true;
-  } catch (cause) {
-    problems.push({
-      code: 'E-DEP-CONSTRAINT',
-      message: `${dependentId} declares an invalid constraint for ${depId}: ${cause.message}`,
-      toolId: dependentId,
-    });
-    return false;
-  }
-  problems.push({
-    code: 'E-DEP-VERSION',
-    message: `${dependentId} requires ${depId} ${constraint ?? '*'} but the registry provides ${version}`,
-    toolId: dependentId,
-  });
-  return false;
 }
 
 /**

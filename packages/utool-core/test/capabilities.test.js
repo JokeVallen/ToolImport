@@ -12,30 +12,34 @@ import test from 'node:test';
 
 import { resolveSelection, toManifest } from '../src/index.js';
 
+/** A v3 manifest: version-scoped data lives inside `versions[]`, not at the root. */
 function tool(id, overrides = {}) {
+  const { targets, ...root } = overrides;
   return toManifest({
     kind: 'tool',
-    formatVersion: '2',
+    formatVersion: '3',
     id,
     displayName: id,
     type: 'tool-library',
     description: `synthetic tool ${id} for capability resolution tests`,
-    version: '1.0.0',
-    provides: [],
-    injects: [],
-    dependencies: [],
-    targets: {
-      unity: {
-        requirements: { minEngineVersion: '2019.4' },
-        artifact: {
-          type: 'external',
-          source: 'git',
-          url: `https://example.com/${id}.git`,
-          ref: 'v1',
+    latest: '1.0.0',
+    versions: [
+      {
+        version: '1.0.0',
+        targets: targets ?? {
+          unity: {
+            requirements: { minEngineVersion: '2019.4' },
+            artifact: {
+              type: 'external',
+              source: 'git',
+              url: `https://example.com/${id}.git`,
+              ref: 'v1',
+            },
+          },
         },
       },
-    },
-    ...overrides,
+    ],
+    ...root,
   });
 }
 

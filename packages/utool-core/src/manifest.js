@@ -1,10 +1,13 @@
 /**
- * Typed view over a validated tool.yaml document (formatVersion 2).
+ * Typed view over a validated tool manifest (formatVersion 3).
  *
- * The class mirrors the format's own split: engine-neutral accessors at the top,
- * and everything engine-specific behind `target(engine)`. Nothing here knows what
- * a Unity or a Godot is - a target is addressed by name and its requirement keys
- * are read as plain data.
+ * Mirrors the format's own split: engine- and version-neutral accessors at the top,
+ * and one published release behind `entry`, whose `targets` map holds the
+ * engine-specific data. Nothing here knows what a Unity or a Godot is.
+ *
+ * The central idea is that a manifest is a LIST of releases, not a release. Every
+ * accessor that reads engine data therefore has to know which version is being read,
+ * which is why an instance carries that choice and why `at(version)` exists.
  */
 
 import path from 'node:path';
@@ -15,14 +18,15 @@ import {
   UNPACK,
   expectedArtifactName,
 } from './format.js';
+import { compareVersions, satisfies } from './semver.js';
 
 /**
- * One engine's view of a tool.
+ * One engine's view of ONE version of a tool.
  */
 export class ToolTarget {
   /**
    * @param {string} engine
-   * @param {object} target the raw `targets.<engine>` mapping
+   * @param {object} target the raw `versions[n].targets.<engine>` mapping
    * @param {string} toolId
    * @param {string} version
    * @param {boolean} multiEngine
@@ -40,7 +44,6 @@ export class ToolTarget {
     return this.doc.requirements ?? {};
   }
 
-  /** The engine version floor, which every adapter must be able to compare. */
   get minEngineVersion() {
     return String(this.requirements.minEngineVersion);
   }
@@ -67,14 +70,12 @@ export class ToolTarget {
     return this.type === ARTIFACT_TYPE.EXTERNAL;
   }
 
-  /** True when the artifact must be unpacked rather than used as-is. */
   get shouldUnpack() {
     if (this.isExternal) return false;
     if (this.type === ARTIFACT_TYPE.FILE) return false;
     return this.artifact.unpack !== UNPACK.NONE;
   }
 
-  /** Repository-relative artifact path, or null when nothing is stored here. */
   get artifactPath() {
     return this.artifact.path ?? null;
   }
@@ -103,7 +104,6 @@ export class ToolTarget {
     return this.artifact.files ?? [];
   }
 
-  /** Upstream coordinates, when this target stores no artifact. */
   get external() {
     if (!this.isExternal) return null;
     return {
@@ -134,8 +134,6 @@ export class ToolTarget {
   }
 
   /**
-   * Does the artifact path and file name follow the mandated convention?
-   *
    * @returns {{ok: boolean, reason?: string}}
    */
   checkArtifactConvention() {
@@ -168,7 +166,6 @@ export class ToolTarget {
     return { ok: true };
   }
 
-  /** Serializable per-engine summary for the CLI. */
   toSummary() {
     return {
       engine: this.engine,
@@ -185,19 +182,86 @@ export class ToolTarget {
   }
 }
 
-export class ToolManifest {
+/**
+ * One published release.
+ */
+export class ToolVersion {
   /**
-   * @param {Record<string, any>|ToolManifest} doc a loaded .yaml document, or an
-   *   existing ToolManifest. Accepting a manifest makes this constructor
-   *   idempotent, which matters because callers at different layers each normalise
-   *   what they receive.
+   * @param {object} entry the raw `versions[n]` mapping
+   * @param {string} toolId
    */
-  constructor(doc) {
-    /** @type {Record<string, any>} */
-    this.doc = doc instanceof ToolManifest ? doc.doc : doc;
+  constructor(entry, toolId) {
+    this.doc = entry;
+    this.toolId = toolId;
   }
 
-  // --- engine-neutral -------------------------------------------------
+  get version() {
+    return String(this.doc.version);
+  }
+
+  get targets() {
+    return this.doc.targets ?? {};
+  }
+
+  get engines() {
+    return Object.keys(this.targets).sort();
+  }
+
+  get deprecated() {
+    return this.doc.deprecated === true;
+  }
+
+  /**
+   * Withdrawn: must not be chosen automatically, for a release that is broken or
+   * unsafe. Distinct from `deprecated`, which only means "prefer something newer".
+   */
+  get yanked() {
+    return this.doc.yanked === true;
+  }
+
+  get releasedAt() {
+    return this.doc.releasedAt ?? null;
+  }
+
+  get notes() {
+    return this.doc.notes ?? null;
+  }
+
+  /** @returns {ToolTarget|null} */
+  target(engine) {
+    const raw = this.targets[engine];
+    if (!raw) return null;
+    return new ToolTarget(engine, raw, this.toolId, this.version, this.engines.length > 1);
+  }
+
+  get allTargets() {
+    return this.engines.map((engine) => this.target(engine));
+  }
+
+  supports(engine) {
+    return Object.prototype.hasOwnProperty.call(this.targets, engine);
+  }
+}
+
+export class ToolManifest {
+  /**
+   * @param {Record<string, any>|ToolManifest} doc a loaded manifest, or an existing
+   *   ToolManifest. Accepting a manifest makes this idempotent, which matters because
+   *   callers at different layers each normalise what they receive.
+   * @param {{version?: string}} [options] pin the version this instance reads;
+   *   defaults to `latest`
+   */
+  constructor(doc, options = {}) {
+    const fromManifest = doc instanceof ToolManifest;
+    /** @type {Record<string, any>} */
+    this.doc = fromManifest ? doc.doc : doc;
+    this.requestedVersion = options.version
+      ? String(options.version)
+      : (fromManifest ? doc.requestedVersion : null);
+    this.entries = Array.isArray(this.doc.versions) ? this.doc.versions : [];
+  }
+
+  // --- engine- and version-neutral ------------------------------------
 
   get id() {
     return this.doc.id;
@@ -213,10 +277,6 @@ export class ToolManifest {
 
   get description() {
     return this.doc.description;
-  }
-
-  get version() {
-    return String(this.doc.version);
   }
 
   get license() {
@@ -239,33 +299,25 @@ export class ToolManifest {
     return this.doc.deprecated === true;
   }
 
-  /**
-   * Capabilities this tool offers. A consumer that injects one of these does not
-   * care which tool provides it, which is what makes a provider replaceable
-   * without editing its consumers.
-   */
   get provides() {
     return this.doc.provides ?? [];
   }
 
-  /** Capabilities this tool needs from somewhere else in the plan. */
   get injects() {
     return this.doc.injects ?? [];
   }
 
-  /** @returns {{id: string, version?: string, reason?: string, optional?: boolean, engines?: string[]}[]} */
   get dependencies() {
     return this.doc.dependencies ?? [];
   }
 
-  /** Required dependencies: the ones that must be pulled in transitively. */
   get requiredDependencies() {
     return this.dependencies.filter((dep) => !dep.optional);
   }
 
   /**
    * Dependencies that apply to a given engine. A dependency with no `engines` list
-   * applies everywhere; otherwise it counts only for the named engines.
+   * applies everywhere.
    *
    * @param {string|null} engine
    */
@@ -280,47 +332,137 @@ export class ToolManifest {
     return this.dependencies.map((dep) => dep.id);
   }
 
-  // --- engine-specific ------------------------------------------------
+  // --- versions -------------------------------------------------------
 
-  /** @returns {Record<string, object>} engine name -> raw target mapping */
+  /** The version an importer offers by default. */
+  get latest() {
+    return String(this.doc.latest);
+  }
+
+  get versions() {
+    // Note: no dependency on isCrossEngine here. ToolVersion derives that from its own
+    // target count, and asking the manifest would be circular (versions -> entry ->
+    // isCrossEngine -> entry -> versions).
+    return this.entries.map((entry) => new ToolVersion(entry, this.id));
+  }
+
+  get versionNumbers() {
+    return this.versions.map((entry) => entry.version);
+  }
+
+  /**
+   * The version this instance reads: the pinned one, else `latest`.
+   *
+   * A pin naming a version that is not published falls back to `latest` rather than
+   * resolving to nothing, so a stale pin degrades instead of emptying a whole listing.
+   */
+  get version() {
+    if (this.requestedVersion && this.versionNumbers.includes(this.requestedVersion)) {
+      return this.requestedVersion;
+    }
+    return this.latest;
+  }
+
+  /** @returns {ToolVersion|null} the release being read */
+  get entry() {
+    return this.versions.find((candidate) => candidate.version === this.version) ?? null;
+  }
+
+  /**
+   * Which releases could be installed automatically?
+   *
+   * Yanked ones are excluded, because "withdrawn" means precisely that it must not be
+   * chosen without a human saying so.
+   */
+  selectable() {
+    return this.versions.filter((entry) => !entry.yanked);
+  }
+
+  /**
+   * The highest release satisfying every constraint.
+   *
+   * @param {string[]} constraints
+   * @param {{allowYanked?: boolean}} [options] allowYanked lets an explicit pin reach a
+   *   withdrawn version, which a receipt may already reference.
+   * @returns {ToolVersion|null}
+   */
+  resolve(constraints = [], options = {}) {
+    const pool = options.allowYanked ? this.versions : this.selectable();
+    const usable = pool.filter((entry) =>
+      constraints.every((constraint) => {
+        try {
+          return satisfies(entry.version, constraint);
+        } catch {
+          return false;
+        }
+      }),
+    );
+    if (usable.length === 0) return null;
+    usable.sort((a, b) => compareVersions(a.version, b.version));
+    return usable[usable.length - 1];
+  }
+
+  /** @returns {ToolVersion|null} the newest release that is not deprecated */
+  get preferred() {
+    const fresh = this.selectable().filter((entry) => !entry.deprecated);
+    const pool = fresh.length > 0 ? fresh : this.selectable();
+    if (pool.length === 0) return null;
+    return [...pool].sort((a, b) => compareVersions(b.version, a.version))[0];
+  }
+
+  /** @returns {boolean} more than one release is published */
+  get hasVariants() {
+    return this.versions.length > 1;
+  }
+
+  // --- engine-specific, for the version being read --------------------
+
   get targets() {
-    return this.doc.targets ?? {};
+    return this.entry?.targets ?? {};
   }
 
-  /** @returns {string[]} engine names this tool declares, sorted */
+  /** Engine names on the version being read, sorted. */
   get engines() {
-    return Object.keys(this.targets).sort();
+    return this.entry?.engines ?? [];
   }
 
-  /** @returns {boolean} true when more than one engine is declared */
+  /** Engines across ALL versions, for "does this tool ever support X". */
+  get allEngines() {
+    const found = new Set();
+    for (const entry of this.versions) {
+      for (const engine of entry.engines) found.add(engine);
+    }
+    return [...found].sort();
+  }
+
   get isCrossEngine() {
     return this.engines.length > 1;
   }
 
-  /**
-   * @param {string} engine
-   * @returns {ToolTarget|null}
-   */
+  /** @returns {ToolTarget|null} null when this version has no such target */
   target(engine) {
-    const raw = this.targets[engine];
-    if (!raw) return null;
-    return new ToolTarget(engine, raw, this.id, this.version, this.isCrossEngine);
+    return this.entry?.target(engine) ?? null;
   }
 
-  /** @returns {ToolTarget[]} every target, in engine order */
   get allTargets() {
-    return this.engines.map((engine) => this.target(engine));
+    return this.entry?.allTargets ?? [];
   }
 
-  /** Does this tool declare the given engine at all? */
   supports(engine) {
-    return Object.prototype.hasOwnProperty.call(this.targets, engine);
+    return this.entry?.supports(engine) ?? false;
+  }
+
+  /** A copy reading another published version, so one manifest can be compared across releases. */
+  at(version) {
+    return new ToolManifest(this.doc, { version });
   }
 
   /**
-   * Serializable summary for index.yaml. Deliberately carries only engine NAMES:
-   * per-engine floors and artifacts belong to the manifest, so the index stays a
-   * small listing rather than a second copy of the data.
+   * Serializable summary for index.yaml.
+   *
+   * Carries every version NUMBER plus `latest`, so a listing can offer a choice. It
+   * deliberately omits per-version engines, floors and artifacts, which belong to the
+   * manifest.
    */
   toSummary(manifestPath) {
     return {
@@ -328,8 +470,9 @@ export class ToolManifest {
       displayName: this.displayName,
       type: this.type,
       description: this.description,
-      version: this.version,
-      engines: this.engines,
+      latest: this.latest,
+      versions: this.versionNumbers,
+      engines: this.allEngines,
       provides: this.provides,
       injects: this.injects,
       dependencies: this.dependencies,
@@ -338,12 +481,14 @@ export class ToolManifest {
     };
   }
 
-  /** Absolute path of one engine's artifact inside a registry root. */
+  /** Absolute path of one engine's artifact for the version being read. */
   artifactAbsolutePath(registryRoot, engine) {
     const target = this.target(engine);
     return target?.artifactPath ? path.join(registryRoot, target.artifactPath) : null;
   }
 }
-export function toManifest(doc) {
-  return doc instanceof ToolManifest ? doc : new ToolManifest(doc);
+
+/** @param {Record<string, any>|ToolManifest} doc @param {{version?: string}} [options] */
+export function toManifest(doc, options = {}) {
+  return doc instanceof ToolManifest && !options.version ? doc : new ToolManifest(doc, options);
 }

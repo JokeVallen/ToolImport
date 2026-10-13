@@ -165,22 +165,47 @@ test('the engine floor blocks the install and names the requirement', async (t) 
   assert.ok(problem.required, 'the floor itself must be reported, not just that one exists');
 });
 
+/**
+ * A minimal v3 tool whose only target is an external git source.
+ *
+ * Short enough to inline repeatedly, and it keeps the version-scoped fields inside
+ * `versions[]` where v3 puts them, so a fixture cannot quietly use the old flat shape.
+ */
+function syntheticTool(id, extras = {}) {
+  return toManifest({
+    kind: 'tool',
+    formatVersion: '3',
+    id,
+    displayName: id,
+    type: 'tool-library',
+    description: `${id} is a synthetic tool used by the install tests`,
+    latest: '1.0.0',
+    versions: [
+      {
+        version: '1.0.0',
+        targets: {
+          unity: {
+            requirements: { minEngineVersion: '2019.4' },
+            artifact: {
+              type: 'external',
+              source: 'git',
+              url: `https://example.com/${id}.git`,
+              ref: 'v1',
+            },
+          },
+        },
+      },
+    ],
+    ...extras,
+  });
+}
+
 test('a capability conflict is reported', async (t) => {
   // The shipped registry has no conflict, so it is exercised through the resolver
   // directly with a synthetic pair of manifests.
   const conflict = [
-    toManifest({
-      kind: 'tool', formatVersion: '2', id: 'one', displayName: 'One', type: 'tool-library',
-      description: 'first provider of a shared capability',
-      version: '1.0.0', provides: ['shared.capability'],
-      targets: { unity: { requirements: { minEngineVersion: '2019.4' }, artifact: { type: 'external', source: 'git', url: 'https://example.com/a.git', ref: 'v1' } } },
-    }),
-    toManifest({
-      kind: 'tool', formatVersion: '2', id: 'two', displayName: 'Two', type: 'tool-library',
-      description: 'second provider of the same capability',
-      version: '1.0.0', provides: ['shared.capability'],
-      targets: { unity: { requirements: { minEngineVersion: '2019.4' }, artifact: { type: 'external', source: 'git', url: 'https://example.com/b.git', ref: 'v1' } } },
-    }),
+    syntheticTool('one', { provides: ['shared.capability'] }),
+    syntheticTool('two', { provides: ['shared.capability'] }),
   ];
   const byId = new Map(conflict.map((manifest) => [manifest.id, manifest]));
 
@@ -191,12 +216,7 @@ test('a capability conflict is reported', async (t) => {
 });
 
 test('an unsatisfiable inject is reported', async (t) => {
-  const lonely = toManifest({
-    kind: 'tool', formatVersion: '2', id: 'needs-help', displayName: 'Needs Help', type: 'tool-library',
-    description: 'injects a capability nothing in the plan provides',
-    version: '1.0.0', injects: ['nobody.provides.this'],
-    targets: { unity: { requirements: { minEngineVersion: '2019.4' }, artifact: { type: 'external', source: 'git', url: 'https://example.com/a.git', ref: 'v1' } } },
-  });
+  const lonely = syntheticTool('needs-help', { injects: ['nobody.provides.this'] });
 
   const plan = await resolveSelection(['needs-help'], async () => lonely, { engine: 'unity' });
   const problem = plan.problems.find((entry) => entry.code === 'E-CAP-UNSATISFIED');

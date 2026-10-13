@@ -43,9 +43,13 @@ export function meta(registry) {
  */
 export function toolSummaries(tools) {
   for (const tool of tools) {
+    // The index carries `latest` plus every published version, not a single `version`,
+    // because a consumer may now choose one. VERSIONS is a separate record so the TOOL
+    // field order stays stable for older front ends.
+    const latest = tool.latest ?? tool.version ?? '';
     record('TOOL', [
       tool.id,
-      tool.version,
+      latest,
       tool.type,
       (tool.engines ?? []).join(','),
       (tool.provides ?? []).join(','),
@@ -55,6 +59,9 @@ export function toolSummaries(tools) {
       (tool.dependencies ?? []).map((dep) => `${dep.id}${dep.version ? `@${dep.version}` : ''}`).join(','),
       tool.manifestPath ?? '',
     ]);
+    for (const version of tool.versions ?? []) {
+      record('VERSIONS', [tool.id, version, version === latest ? 'latest' : '']);
+    }
   }
 }
 

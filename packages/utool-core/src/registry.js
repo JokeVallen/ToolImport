@@ -138,40 +138,70 @@ export async function validateRegistry(root, options) {
       );
     }
 
-    // --- targets --------------------------------------------------------
-    if (manifest.engines.length === 0) {
-      bag.error('E-TARGETS-MISSING', `${id}: targets must declare at least one engine`);
+    // --- versions and targets -------------------------------------------
+    if (manifest.versionNumbers.length === 0) {
+      bag.error('E-VERSIONS-MISSING', `${id}: versions must declare at least one release`);
+    }
+    if (!manifest.versionNumbers.includes(manifest.latest)) {
+      bag.error(
+        'E-LATEST-UNKNOWN',
+        `${id}: latest is ${manifest.latest}, which is not among the published versions ` +
+          `(${manifest.versionNumbers.join(', ')})`,
+      );
     }
 
     const declaredNames = new Set();
-    for (const engine of manifest.engines) {
-      const target = manifest.target(engine);
+    let targetCount = 0;
 
-      if (target.minEngineVersion === undefined || target.minEngineVersion === 'undefined') {
+    // Every version is checked, and every version's artifacts are collected, so the
+    // stray-file check below does not report an older release's artifact as an
+    // undeclared file.
+    for (const entry of manifest.versions) {
+      const where = `${id}@${entry.version}`;
+
+      if (entry.engines.length === 0) {
+        bag.error('E-TARGETS-MISSING', `${where}: targets must declare at least one engine`);
+        continue;
+      }
+      if (entry.yanked && entry.version === manifest.latest) {
         bag.error(
-          'E-TARGET-REQUIREMENTS',
-          `${id}/${engine}: requirements.minEngineVersion is mandatory; a tool that cannot state its ` +
-            `floor is not admitted`,
+          'E-YANKED-LATEST',
+          `${where}: latest must not name a yanked version; point latest at a release that ` +
+            `is still installable`,
         );
       }
 
-      if (target.isExternal) {
-        const external = target.external;
-        if (!external?.url || !external?.ref) {
-          bag.error('E-EXTERNAL-INCOMPLETE', `${id}/${engine}: external source needs both url and ref`);
-        } else {
-          note(`${id}/${engine}: external ${external.source} ${external.url} @ ${external.ref}`);
+      for (const engine of entry.engines) {
+        const target = entry.target(engine);
+        targetCount += 1;
+
+        if (target.artifactPath) declaredNames.add(path.basename(target.artifactPath));
+
+        if (target.minEngineVersion === undefined || target.minEngineVersion === 'undefined') {
+          bag.error(
+            'E-TARGET-REQUIREMENTS',
+            `${where}/${engine}: requirements.minEngineVersion is mandatory; a tool that cannot ` +
+              `state its floor is not admitted`,
+          );
         }
-        continue;
-      }
 
-      if (!ARTIFACT_TYPE[String(target.type).toUpperCase()] && target.type !== 'file') {
-        bag.error(
-          'E-ARTIFACT-TYPE',
-          `${id}/${engine}: unknown artifact type ${JSON.stringify(target.type)}`,
-        );
-        continue;
-      }
+        if (target.isExternal) {
+          const external = target.external;
+          if (!external?.url || !external?.ref) {
+            bag.error('E-EXTERNAL-INCOMPLETE', `${where}/${engine}: external source needs both url and ref`);
+          } else {
+            note(`${where}/${engine}: external ${external.source} ${external.url} @ ${external.ref}`);
+          }
+          continue;
+        }
+
+        if (!ARTIFACT_TYPE[String(target.type).toUpperCase()] && target.type !== 'file') {
+          bag.error(
+            'E-ARTIFACT-TYPE',
+            `${where}/${engine}: unknown artifact type ${JSON.stringify(target.type)}`,
+          );
+          continue;
+        }
 
       if (target.artifactPath) declaredNames.add(path.basename(target.artifactPath));
 
@@ -209,12 +239,20 @@ export async function validateRegistry(root, options) {
       try {
         const report = await verifyArtifactFile(artifactFile, target.declaredArtifact, containers);
         note(
-          `${id}/${engine}: ${report.format ?? 'file'}, ${report.size} bytes, sha256 verified, ` +
+          `${where}/${engine}: ${report.format ?? 'file'}, ${report.size} bytes, sha256 verified, ` +
             `${report.items.length} destination(s)`,
         );
       } catch (cause) {
-        bag.error(cause.code ?? 'E-ARTIFACT', `${id}/${engine}: ${cause.message}`);
+        bag.error(cause.code ?? 'E-ARTIFACT', `${where}/${engine}: ${cause.message}`);
       }
+    }
+    }
+
+    if (targetCount > 0) {
+      note(
+        `${id}: ${manifest.versionNumbers.length} version(s), ${targetCount} target(s): ` +
+          `${manifest.versionNumbers.join(', ')} (latest ${manifest.latest})`,
+      );
     }
 
     const artifactsDir = path.join(dir, 'artifacts');
@@ -247,12 +285,17 @@ export async function validateRegistry(root, options) {
         continue;
       }
       try {
-        if (satisfies(target.version, dep.version)) {
-          note(`${manifest.id} -> ${dep.id} ${dep.version ?? '*'} satisfied by ${target.version}`);
+        // Multi-version aware: the constraint must be satisfiable by SOME published
+        // version. A constraint naming an older release is legitimate, and comparing it
+        // against the default would reject it here while the resolver accepted it.
+        const matched = target.resolve(dep.version ? [dep.version] : []);
+        if (matched) {
+          note(`${manifest.id} -> ${dep.id} ${dep.version ?? '*'} satisfied by ${matched.version}`);
         } else {
           bag.error(
             'E-DEP-VERSION',
-            `${manifest.id}: requires ${dep.id} ${dep.version} but the registry provides ${target.version}`,
+            `${manifest.id}: requires ${dep.id} ${dep.version ?? '*'} but the registry publishes ` +
+              `${target.versionNumbers.join(', ') || '(nothing)'}`,
           );
         }
       } catch (cause) {

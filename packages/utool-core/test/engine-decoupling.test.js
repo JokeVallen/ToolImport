@@ -140,8 +140,8 @@ test('artifact names carry the engine segment only when a manifest is multi-engi
   assert.equal(artifactNameEngine('libs-sharp-json-3.0.0.dll'), null);
 });
 
-test('formatVersion is 2 and the loader rejects 1', () => {
-  assert.equal(FORMAT_VERSION, '2');
+test('formatVersion is 3 and the loader rejects 2', () => {
+  assert.equal(FORMAT_VERSION, '3');
 });
 
 test('a single-file payload still verifies size and digest', () => {
