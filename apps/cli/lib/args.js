@@ -19,6 +19,15 @@ const BOOLEAN_FLAGS = new Set([
   'version',
 ]);
 
+/**
+ * Flags that take a value and may appear more than once.
+ *
+ * These accumulate into an array. Without this list a repeatable flag would simply
+ * overwrite itself, so `--also-engine godot --also-engine unreal` would silently
+ * keep only the last engine.
+ */
+const REPEATABLE_FLAGS = new Set(['also-engine']);
+
 /** @type {Record<string,string>} maps a flag to its canonical camelCase key */
 const KEY_ALIASES = {
   'dry-run': 'dryRun',
@@ -69,6 +78,7 @@ export function parseArgs(argv) {
     }
 
     const key = KEY_ALIASES[name] ?? name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    const repeatable = REPEATABLE_FLAGS.has(name);
 
     if (BOOLEAN_FLAGS.has(name)) {
       flags[key] = valueFromEquals === undefined ? true : valueFromEquals !== 'false';
@@ -76,7 +86,11 @@ export function parseArgs(argv) {
     }
 
     if (valueFromEquals !== undefined) {
-      flags[key] = valueFromEquals;
+      if (repeatable) {
+        (flags[key] ??= []).push(valueFromEquals);
+      } else {
+        flags[key] = valueFromEquals;
+      }
       continue;
     }
 
@@ -87,7 +101,11 @@ export function parseArgs(argv) {
       unknown.push(token);
       continue;
     }
-    flags[key] = next;
+    if (repeatable) {
+      (flags[key] ??= []).push(next);
+    } else {
+      flags[key] = next;
+    }
     i += 1;
   }
 

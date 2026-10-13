@@ -54,21 +54,36 @@ export async function loadAdapter(engine) {
  * Build a container registry with the named adapters loaded.
  *
  * @param {string[]} engines
- * @returns {Promise<{containers: import('@unitydevcommonlib/utool-core').ContainerRegistry, adapters: Map<string, object>}>}
+ * @param {{onMissingAdapter?: (engine: string, message: string) => void}} [options]
+ *   Called instead of throwing when an adapter is unavailable. Without it a missing
+ *   adapter is an error, which is right for the PRIMARY engine: the user asked to
+ *   install into an engine this build cannot serve, and proceeding with another
+ *   engine's bytes would be wrong.
+ * @returns {Promise<{containers: import('@unitydevcommonlib/utool-core').ContainerRegistry, adapters: Map<string, object>, unavailable: Map<string, string>}>}
  */
-export async function loadAdapters(engines) {
+export async function loadAdapters(engines, options = {}) {
   const containers = createCoreContainerRegistry();
   const adapters = new Map();
+  /** @type {Map<string, string>} */
+  const unavailable = new Map();
 
   for (const engine of engines) {
-    const adapter = await loadAdapter(engine);
+    let adapter;
+    try {
+      adapter = await loadAdapter(engine);
+    } catch (cause) {
+      if (!options.onMissingAdapter) throw cause;
+      unavailable.set(engine, cause.message);
+      options.onMissingAdapter(engine, cause.message);
+      continue;
+    }
     for (const handler of adapter.containerHandlers ?? []) {
       containers.register(handler);
     }
     adapters.set(engine, adapter);
   }
 
-  return { containers, adapters };
+  return { containers, adapters, unavailable };
 }
 
 /**
