@@ -5,7 +5,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DevCat.UnityDevCommonLib.ImportTool.Editor
+namespace DevCat.ToolImport.Editor
 {
     /// <summary>
     /// Runs the <c>utool</c> backend CLI and returns its JSON output.
@@ -67,7 +67,7 @@ namespace DevCat.UnityDevCommonLib.ImportTool.Editor
             {
                 string candidate = Path.Combine(
                     directory.FullName,
-                    "UnityDevCommonLib_FrontToolsDev", "apps", "cli", "bin", "utool.js");
+                    "UnityToolImport", "apps", "cli", "bin", "utool.js");
                 if (File.Exists(candidate))
                 {
                     return candidate;
@@ -107,7 +107,7 @@ namespace DevCat.UnityDevCommonLib.ImportTool.Editor
                     StdErr =
                         "The utool backend CLI was not found.\n" +
                         "Set the " + CliPathVariable + " environment variable to the absolute path of " +
-                        "apps/cli/bin/utool.js, or place a UnityDevCommonLib_FrontToolsDev checkout " +
+                        "apps/cli/bin/utool.js, or place a UnityToolImport checkout " +
                         "beside this project.",
                 });
             }

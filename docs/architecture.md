@@ -42,7 +42,7 @@ testable with no Editor window open and no network.
 | --- | --- |
 | `IRegistrySource` | `FetchIndex()`, `FetchManifest(id)`, `FetchArtifact(path)`; abstracts HTTP, a local path, or a git checkout |
 | `HttpRegistrySource` | `raw.githubusercontent.com` at a pinned ref, with a disk cache |
-| `LocalPathRegistrySource` | points at a sibling `UnityDevCommonLib` checkout; used for development and tests |
+| `LocalPathRegistrySource` | points at a sibling `DevCatToolRegistry` checkout; used for development and tests |
 | `ManifestParser` | JSON -> model; applies the rejection rules (unknown `schemaVersion`, id/directory mismatch) |
 
 The source never mutates the registry. Read-only, cacheable by digest.
@@ -92,6 +92,6 @@ written — a partial install is worse than no install.
 | Errors as values, not exceptions | The UI must show all resolution problems, not just the first |
 | `LocalPathRegistrySource` first | Develop and test against the sibling registry with no network |
 
-See also [`../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.md`](../../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.md)
+See also [`../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.md`](../../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.md)
 for the normative data contract, and [`decisions.md`](decisions.md) for the reasoning behind the
 frontend living in a separate directory.

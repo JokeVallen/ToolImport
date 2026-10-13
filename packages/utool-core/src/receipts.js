@@ -2,7 +2,7 @@
  * Install receipts.
  *
  * One receipt per installed tool, under
- * `<project>/Library/UnityDevCommonLib/receipts/<toolId>.utool`, is what makes
+ * `<project>/Library/DevCatToolRegistry/receipts/<toolId>.utool`, is what makes
  * uninstall exact: a file is only removed when no remaining receipt still claims
  * it, and a file the user has since modified is reported rather than deleted.
  *
@@ -65,7 +65,7 @@ export class ReceiptStore {
       installedByTools: receipt.installedByTools,
     };
     const header =
-      '# Import receipt written by the UnityDevCommonLib import tool.\n' +
+      '# Import receipt written by the DevCatToolRegistry import tool.\n' +
       '# Do not hand-edit: it drives uninstall and reference counting.\n';
     const target = this.pathFor(receipt.toolId);
     // `lineWidth: 0` disables folding so long paths stay on one line.

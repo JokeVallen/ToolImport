@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Engine-agnostic backend for the UnityDevCommonLib import tool: parses the .utool format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
+  "description": "Engine-agnostic backend for the DevCatToolRegistry import tool: parses the .utool format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
   "license": "MIT",
   "author": "DevCat",
   "engines": {
@@ -11,12 +11,14 @@
   },
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "providers/*",
+    "apps/*",
+    "frontends/*"
   ],
   "scripts": {
     "test": "node --test \"packages/utool-core/test/*.test.js\"",
     "cli": "node apps/cli/bin/utool.js",
-    "validate": "node apps/cli/bin/utool.js validate ../UnityDevCommonLib"
+    "validate": "node apps/cli/bin/utool.js validate ../DevCatToolRegistry"
   },
   "dependencies": {
     "yaml": "^2.6.1"

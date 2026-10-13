@@ -1,6 +1,6 @@
-# UnityDevCommonLib import tool
+# DevCatToolRegistry import tool
 
-The companion tool for [UnityDevCommonLib](../UnityDevCommonLib): browse the
+The companion tool for [DevCatToolRegistry](../DevCatToolRegistry): browse the
 registry, verify a payload, install it, and record a receipt so it can be removed
 cleanly later.
 
@@ -35,10 +35,10 @@ output records instead of in-memory objects.
 ```pwsh
 npm install                                          # the only dependency is `yaml`
 
-node apps/cli/bin/utool.js list --registry ../UnityDevCommonLib
-node apps/cli/bin/utool.js show core-editor-utils  --registry ../UnityDevCommonLib
-node apps/cli/bin/utool.js plan editor-tool-selection-history --registry ../UnityDevCommonLib
-node apps/cli/bin/utool.js validate ../UnityDevCommonLib
+node apps/cli/bin/utool.js list --registry ../DevCatToolRegistry
+node apps/cli/bin/utool.js show core-editor-utils  --registry ../DevCatToolRegistry
+node apps/cli/bin/utool.js plan editor-tool-selection-history --registry ../DevCatToolRegistry
+node apps/cli/bin/utool.js validate ../DevCatToolRegistry
 npm test
 ```
 
@@ -86,7 +86,7 @@ npm test        # node --test packages/utool-core/test/
 The suite covers document parsing, semver-lite constraints, registry validation,
 dependency resolution (including cycles, optional dependencies and platform
 gates), artifact verification, install with receipts, shared-file reference
-counting — and it validates the real registry in `../UnityDevCommonLib`, so a
+counting — and it validates the real registry in `../DevCatToolRegistry`, so a
 format change that breaks the shipped payloads fails here.
 
 The Unity C# is type-checked against minimal Unity stubs so it can be verified on
@@ -96,13 +96,13 @@ is not shipped.
 ## Relationship to the registry repository
 
 ```text
-../UnityDevCommonLib          the data: .utool documents and sealed artifacts
+../DevCatToolRegistry          the data: .utool documents and sealed artifacts
 this directory                the code: parsing, verification, installation
 ```
 
 The only interface between them is the data contract in
-[`../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.zh-CN.md`](../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.zh-CN.md)
-(English: [`…en.md`](../UnityDevCommonLib/docs/FRONTEND-INTEGRATION.en.md)) plus
+[`../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md`](../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md)
+(English: [`…en.md`](../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md)) plus
 `schema/tool.schema.json`. Either side can be replaced as long as that holds.
 
 Not yet enabled: uninstall execution (the exact plan and reference counting are

@@ -7,8 +7,8 @@ and what would make us revisit it.
 
 ## D-1 — The frontend lives outside the registry repository
 
-**Decision.** The editor frontend is developed in `UnityDevCommonLib_FrontToolsDev/`, a sibling
-directory with its own local git history, not inside `UnityDevCommonLib`.
+**Decision.** The editor frontend is developed in `UnityToolImport/`, a sibling
+directory with its own local git history, not inside `DevCatToolRegistry`.
 
 **Why.**
 

@@ -1,100 +1,99 @@
 /**
- * Dependency resolution.
+ * Dependency and capability resolution.
  *
- * Input: the ids the user asked for (plus, optionally, what is already installed)
- * Output: a topologically ordered install plan, or a structured list of problems.
+ * Input: the ids the user asked for, and which engine they are installing into.
+ * Output: a topologically ordered plan, or a structured list of problems.
  *
- * Rules enforced here (docs/SPEC.zh-CN.md section 4.1 and
- * docs/FRONTEND-INTEGRATION.zh-CN.md section 5):
- *   - required dependencies are pulled in transitively
- *   - optional dependencies resolve only when the user already selected them,
- *     and never make a plan fail
+ * Rules, from docs/SPEC.zh-CN.md and docs/FRONTEND-INTEGRATION.zh-CN.md:
+ *   - a tool must declare a target for the requested engine, or it is skipped
+ *     with a reason rather than silently dropped
+ *   - requirements are checked against the host, and a failure names both the
+ *     floor and the tool that imposed it
+ *   - required dependencies are pulled in transitively; optional ones only when
+ *     the user already selected them
  *   - a cycle is a hard error, never auto-broken
- *   - the host must meet minUnityVersion / minDotNetVersion, and the failure
- *     names both the floor and which tool imposed it
+ *   - a capability may have at most one provider in the plan, and every inject
+ *     must be satisfiable. Both are errors, because either way a consumer cannot
+ *     know what it received.
  *
- * Problems are collected rather than thrown, so the UI can show every reason a
+ * Problems are collected rather than thrown, so a UI can show every reason a
  * selection cannot be installed instead of only the first.
  */
 
-import { ResolutionError, PlatformError } from './errors.js';
-import { satisfies, compareUnityVersions, compareDotNetVersions } from './semver.js';
+import { PlatformError, ResolutionError } from './errors.js';
+import { compareVersions, satisfies } from './semver.js';
 import { toManifest, ToolManifest } from './manifest.js';
 
 /**
  * @typedef {Object} ResolveOptions
- * @property {{unityVersion: string, dotNetVersion: string}} [host]
- *   host capabilities; when omitted, platform gating is skipped entirely
- * @property {string[]} [alreadySelected] ids the user picked, used to decide
- *   whether an optional dependency applies
- * @property {(id: string) => boolean} [isInstalled] already-installed ids are
- *   still resolved but marked as such
+ * @property {string} [engine] engine being installed into; defaults to unity,
+ *   because that is the adapter this tool ships with
+ * @property {string[]} [alsoEngines] extra engines to plan at the same time, for a
+ *   cross-engine install of a shared C# library
+ * @property {(engine: string, requirement: string, value: string|number|boolean) => boolean} [meetsRequirement]
+ *   engine-specific floor comparison, supplied by the adapter
+ * @property {string[]} [alreadySelected]
+ * @property {(id: string) => boolean} [isInstalled]
  */
 
-/**
- * @typedef {Object} PlanStep
- * @property {import('./manifest.js').ToolManifest} manifest
- * @property {string[]} installedBecause ids that required this, or ['user']
- * @property {boolean} alreadyInstalled
- * @property {boolean} external
- */
-
-/**
- * @typedef {Object} Plan
- * @property {PlanStep[]} steps topological order: dependencies first
- * @property {{code: string, message: string, toolId?: string}[]} problems
- * @property {number} exitCode 0 when installable
- */
+export const DEFAULT_ENGINE = 'unity';
 
 /**
  * Resolve a selection into an install plan.
  *
  * @param {string[]} requestedIds
- * @param {(id: string) => Promise<import('./manifest.js').ToolManifest>} fetchManifest
+ * @param {(id: string) => Promise<ToolManifest|Record<string, any>>} fetchManifest
  * @param {ResolveOptions} [options]
- * @returns {Promise<Plan>}
+ * @returns {Promise<{steps: object[], problems: object[], skipped: object[], exitCode: number}>}
  */
 export async function resolveSelection(requestedIds, fetchManifest, options = {}) {
-  const { host, isInstalled, alreadySelected } = options;
+  const {
+    engine = DEFAULT_ENGINE,
+    alsoEngines = [],
+    meetsRequirement,
+    alreadySelected,
+    isInstalled,
+  } = options;
+
+  // Every engine this plan touches. `engine` is primary: a tool that does not
+  // support it is skipped rather than quietly installed somewhere else.
+  const engines = [...new Set([engine, ...alsoEngines])];
   const selected = new Set(alreadySelected ?? requestedIds);
 
-  /** @type {Map<string, import('./manifest.js').ToolManifest>} */
+  /** @type {Map<string, ToolManifest>} */
   const manifests = new Map();
   /** @type {Map<string, Set<string>>} id -> ids that required it */
   const requiredBy = new Map();
-  /** @type {{code: string, message: string, toolId?: string}[]} */
+  /** @type {object[]} */
   const problems = [];
+  /** @type {object[]} */
+  const skipped = [];
   /** @type {string[]} */
   const order = [];
 
   const seen = new Set();
   const inProgress = new Set();
 
-  /** @param {string} id @param {string} neededBy */
   const visit = async (id, neededBy) => {
     if (!requiredBy.has(id)) requiredBy.set(id, new Set());
     if (neededBy !== 'user') requiredBy.get(id).add(neededBy);
-
     if (seen.has(id)) return;
 
-    // Cycle detection runs on the DFS stack, before memoisation, so that a
-    // back-edge is reported rather than silently tolerated.
     if (inProgress.has(id)) {
-      const cycle = `${[...inProgress].join(' -> ')} -> ${id}`;
       problems.push({
         code: 'E-DEP-CYCLE',
-        message: `dependency cycle detected: ${cycle}`,
+        message: `dependency cycle detected: ${[...inProgress].join(' -> ')} -> ${id}`,
         toolId: id,
       });
       return;
     }
 
     inProgress.add(id);
+
     let manifest;
     try {
-      // fetchManifest may hand back a raw document or an already-normalised
-      // manifest; toManifest handles both, so do not normalise twice here.
-      manifest = await fetchManifest(id);
+      const fetched = await fetchManifest(id);
+      manifest = fetched instanceof ToolManifest ? fetched : toManifest(fetched);
     } catch (cause) {
       problems.push({
         code: cause.code ?? 'E-DEP-FETCH',
@@ -105,7 +104,6 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
       return;
     }
 
-    // Identity check: the manifest must agree with what we asked for.
     if (manifest.id !== id) {
       problems.push({
         code: 'E-ID-MISMATCH',
@@ -114,10 +112,28 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
       });
     }
 
-    manifests.set(id, manifest);
-    checkPlatform(manifest, host, problems);
+    // --- engine applicability -------------------------------------------
+    const usableEngines = engines.filter((candidate) => manifest.supports(candidate));
+    if (usableEngines.length === 0) {
+      skipped.push({
+        id,
+        reason:
+          `does not support ${engines.join(' or ')}; it declares ` +
+          `${manifest.engines.join(', ') || 'no targets'}`,
+        availableEngines: manifest.engines,
+      });
+      inProgress.delete(id);
+      seen.add(id);
+      return;
+    }
 
-    for (const dep of manifest.dependencies) {
+    manifests.set(id, manifest);
+
+    for (const candidate of usableEngines) {
+      checkRequirements(manifest, candidate, meetsRequirement, problems);
+    }
+
+    for (const dep of manifest.dependenciesFor(engine)) {
       if (dep.optional && !selected.has(dep.id)) continue;
 
       const target = manifests.get(dep.id) ?? (await safeFetch(dep.id, fetchManifest, problems));
@@ -139,26 +155,29 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
     await visit(id, 'user');
   }
 
-  const steps = order.map((id) => {
-    const manifest = manifests.get(id);
-    const because = [...(requiredBy.get(id) ?? new Set())];
-    return {
-      manifest,
-      installedBecause: because.length > 0 ? because.sort() : ['user'],
-      alreadyInstalled: isInstalled ? isInstalled(id) : false,
-      external: manifest.isExternal,
-    };
-  });
+  checkCapabilities(manifests, order, problems, skipped);
 
-  const exitCode = exitCodeFor(problems);
-  return { steps, problems, exitCode };
+  const steps = order
+    .filter((id) => manifests.has(id))
+    .map((id) => {
+      const manifest = manifests.get(id);
+      const because = [...(requiredBy.get(id) ?? new Set())];
+      return {
+        manifest,
+        engines: engines.filter((candidate) => manifest.supports(candidate)),
+        installedBecause: because.length > 0 ? because.sort() : ['user'],
+        alreadyInstalled: isInstalled ? isInstalled(id) : false,
+      };
+    });
+
+  return { steps, problems, skipped, exitCode: exitCodeFor(problems) };
 }
 
-/** @returns {Promise<import('./manifest.js').ToolManifest|null>} */
+/** @returns {Promise<ToolManifest|null>} */
 async function safeFetch(id, fetchManifest, problems) {
   try {
-    const manifest = await fetchManifest(id);
-    return manifest instanceof ToolManifest ? manifest : toManifest(manifest);
+    const fetched = await fetchManifest(id);
+    return fetched instanceof ToolManifest ? fetched : toManifest(fetched);
   } catch (cause) {
     problems.push({
       code: cause.code ?? 'E-DEP-FETCH',
@@ -169,9 +188,6 @@ async function safeFetch(id, fetchManifest, problems) {
   }
 }
 
-/**
- * @returns {boolean} true when the constraint holds and no problem was recorded
- */
 function satisfiesSafely(version, constraint, depId, dependentId, problems) {
   try {
     if (satisfies(version, constraint)) return true;
@@ -185,78 +201,138 @@ function satisfiesSafely(version, constraint, depId, dependentId, problems) {
   }
   problems.push({
     code: 'E-DEP-VERSION',
-    message:
-      `${dependentId} requires ${depId} ${constraint ?? '*'} but the registry provides ${version}`,
+    message: `${dependentId} requires ${depId} ${constraint ?? '*'} but the registry provides ${version}`,
     toolId: dependentId,
   });
   return false;
 }
 
 /**
- * Enforce the declared platform floors.
+ * Check a tool's declared requirements for one engine.
  *
- * @param {import('./manifest.js').ToolManifest} manifest
- * @param {{unityVersion: string, dotNetVersion: string}|undefined} host
- * @param {{code: string, message: string, toolId?: string}[]} problems
+ * minEngineVersion is the only key the core understands, and it can only *report*
+ * it: comparing "2020.3" against a running editor is engine knowledge. So the
+ * adapter is asked through `meetsRequirement`, and with no adapter for that engine
+ * the floor is reported but not enforced - which is the honest position rather
+ * than guessing a comparison.
  */
-export function checkPlatform(manifest, host, problems) {
-  if (!host) return;
+function checkRequirements(manifest, engine, meetsRequirement, problems) {
+  const target = manifest.target(engine);
+  if (!target) return;
 
-  if (host.unityVersion !== undefined && host.unityVersion !== null) {
-    try {
-      if (compareUnity(host.unityVersion, manifest.minUnityVersion) < 0) {
-        problems.push({
-          code: 'E-PLATFORM-UNITY',
-          message:
-            `${manifest.id} needs Unity ${manifest.minUnityVersion} or newer, ` +
-            `but this project runs ${host.unityVersion}`,
-          toolId: manifest.id,
-        });
-      }
-    } catch (cause) {
-      problems.push({
-        code: 'E-PLATFORM-PARSE',
-        message: `${manifest.id}: ${cause.message}`,
-        toolId: manifest.id,
-      });
-    }
+  const requirements = target.requirements;
+  if (requirements.minEngineVersion === undefined) {
+    problems.push({
+      code: 'E-TARGET-REQUIREMENTS',
+      message: `${manifest.id}/${engine}: requirements.minEngineVersion is mandatory`,
+      toolId: manifest.id,
+    });
+    return;
   }
 
-  if (host.dotNetVersion !== undefined && host.dotNetVersion !== null) {
+  if (typeof meetsRequirement !== 'function') return;
+
+  for (const [key, value] of Object.entries(requirements)) {
+    let ok;
     try {
-      if (compareDotNet(host.dotNetVersion, manifest.minDotNetVersion) < 0) {
-        problems.push({
-          code: 'E-PLATFORM-DOTNET',
-          message:
-            `${manifest.id} needs .NET API level ${manifest.minDotNetVersion} or newer, ` +
-            `but this project is set to ${host.dotNetVersion}`,
-          toolId: manifest.id,
-        });
-      }
+      ok = meetsRequirement(engine, key, value);
     } catch (cause) {
       problems.push({
         code: 'E-PLATFORM-PARSE',
-        message: `${manifest.id}: ${cause.message}`,
+        message: `${manifest.id}/${engine}: cannot compare ${key} '${value}': ${cause.message}`,
         toolId: manifest.id,
+      });
+      continue;
+    }
+    if (ok === false) {
+      problems.push({
+        code: 'E-PLATFORM',
+        message: `${manifest.id}/${engine}: needs ${key} ${value} or newer, but the host does not meet it`,
+        toolId: manifest.id,
+        engine,
+        requirement: key,
+        required: value,
       });
     }
   }
 }
 
-// Thin wrappers so a parse failure surfaces as a problem entry rather than an
-// exception escaping the resolver.
-function compareUnity(host, floor) {
-  return compareUnityVersions(host, floor);
-}
-function compareDotNet(host, floor) {
-  return compareDotNetVersions(host, floor);
+/**
+ * Capability checks: at most one provider per capability, and every inject
+ * satisfiable.
+ *
+ * These are what make `provides`/`injects` worth declaring. Without them a
+ * duplicate or missing provider is invisible until something breaks at runtime,
+ * inside a consumer's project, far from the registry.
+ */
+function checkCapabilities(manifests, order, problems, skipped) {
+  const skippedIds = new Set(skipped.map((entry) => entry.id));
+
+  /** @type {Map<string, string[]>} */
+  const providers = new Map();
+  for (const id of order) {
+    const manifest = manifests.get(id);
+    if (!manifest || skippedIds.has(id)) continue;
+    for (const capability of manifest.provides) {
+      if (!providers.has(capability)) providers.set(capability, []);
+      providers.get(capability).push(id);
+    }
+  }
+
+  for (const [capability, owners] of providers) {
+    if (owners.length > 1) {
+      problems.push({
+        code: 'E-CAP-CONFLICT',
+        message:
+          `capability '${capability}' is provided by ${owners.length} tools in this plan ` +
+          `(${[...owners].sort().join(', ')}); a consumer of it cannot know which provider it gets`,
+        capability,
+        providers: [...owners].sort(),
+      });
+    }
+  }
+
+  for (const id of order) {
+    const manifest = manifests.get(id);
+    if (!manifest || skippedIds.has(id)) continue;
+    for (const capability of manifest.injects) {
+      if (!providers.has(capability)) {
+        problems.push({
+          code: 'E-CAP-UNSATISFIED',
+          message:
+            `${id} injects '${capability}' but nothing in this plan provides it; add the ` +
+            `providing tool to the selection`,
+          toolId: id,
+          capability,
+        });
+      }
+    }
+  }
 }
 
 /** @returns {number} the CLI exit code implied by a problem list */
 export function exitCodeFor(problems) {
   if (problems.length === 0) return 0;
-  if (problems.some((p) => p.code.startsWith('E-PLATFORM'))) return 4;
+  if (problems.some((problem) => String(problem.code).startsWith('E-PLATFORM'))) return 4;
   return 3;
 }
 
-export { ResolutionError, PlatformError };
+/**
+ * Pick the highest version satisfying every constraint.
+ *
+ * The registry publishes one version per tool today, so nothing calls this yet.
+ * It exists so the conflict policy is written down rather than improvised when
+ * multi-version manifests arrive.
+ *
+ * @param {string[]} candidates
+ * @param {string[]} constraints
+ * @returns {string|null}
+ */
+export function pickHighestSatisfying(candidates, constraints) {
+  const usable = candidates
+    .filter((candidate) => constraints.every((constraint) => satisfies(candidate, constraint)))
+    .sort(compareVersions);
+  return usable.length > 0 ? usable[usable.length - 1] : null;
+}
+
+export { PlatformError, ResolutionError };

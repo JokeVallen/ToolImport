@@ -5,7 +5,7 @@ using System.Text;
 using UnityEditor;
 using UnityEngine;
 
-namespace DevCat.UnityDevCommonLib.ImportTool.Editor
+namespace DevCat.ToolImport.Editor
 {
     /// <summary>
     /// The editor front end: browse the registry, review a plan, install.
@@ -24,7 +24,7 @@ namespace DevCat.UnityDevCommonLib.ImportTool.Editor
     {
         private const string RegistryPathVariable = "UTOOL_REGISTRY";
         private const string DefaultRemoteRegistry =
-            "https://raw.githubusercontent.com/JokeVallen/UnityDevCommonLib/main";
+            "https://raw.githubusercontent.com/JokeVallen/DevCatToolRegistry/main";
 
         private readonly List<AvailableTool> tools = new List<AvailableTool>();
         private Vector2 listScroll;
@@ -36,7 +36,7 @@ namespace DevCat.UnityDevCommonLib.ImportTool.Editor
         private BackendRecords planRecords;
         private bool busy;
 
-        [MenuItem("Window/UnityDevCommonLib/工具库导入工具 (Import Tool)", priority = 1200)]
+        [MenuItem("Window/DevCatToolRegistry/工具库导入工具 (Import Tool)", priority = 1200)]
         private static void Open()
         {
             var window = GetWindow<ImportToolWindow>();
@@ -421,7 +421,7 @@ namespace DevCat.UnityDevCommonLib.ImportTool.Editor
             var directory = new DirectoryInfo(Application.dataPath);
             for (int depth = 0; directory != null && depth < 6; depth++)
             {
-                string candidate = Path.Combine(directory.FullName, "UnityDevCommonLib");
+                string candidate = Path.Combine(directory.FullName, "DevCatToolRegistry");
                 if (Directory.Exists(Path.Combine(candidate, "payloads")))
                 {
                     return candidate;

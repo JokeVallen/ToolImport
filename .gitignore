@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# UnityDevCommonLib import tool ignores
+# DevCatToolRegistry import tool ignores
 #
 # This is a Node/npm workspace (backend) plus Unity Editor sources (front end).
 # It is NOT a Unity project: there is no Assets/ or ProjectSettings/ here, so

@@ -3,11 +3,16 @@
  *
  * The same rules tools/validate_registry.py enforces, expressed here because the
  * import tool must be able to check a registry it fetched over HTTP without
- * running Python. The two implementations are kept deliberately parallel; when a
+ * running Python. The two implementations are kept deliberately parallel: when a
  * rule changes, both change.
  *
  * Every violation is collected rather than thrown, so one run reports the whole
  * picture.
+ *
+ * Containers arrive through a registry rather than being known here, so validating
+ * a Unity payload requires the Unity adapter to have been loaded. That is why the
+ * signature takes `containers` explicitly: a caller that forgets to load an adapter
+ * gets a clear "no handler registered" instead of a silent pass.
  */
 
 import { existsSync } from 'node:fs';
@@ -17,14 +22,18 @@ import path from 'node:path';
 import { DiagnosticBag } from './errors.js';
 import {
   ALLOWED_PAYLOAD_ENTRIES,
-  ID_PATTERN,
+  ARTIFACT_TYPE,
+  CORE_ARCHIVE_FORMATS,
   FILE_NAMES,
-  KIND,
   FORMAT_VERSION,
+  ID_PATTERN,
+  KIND,
+  UNPACK,
+  isCapability,
 } from './format.js';
-import { loadUtool, checkHeader } from './loader.js';
+import { checkHeader, loadUtool } from './loader.js';
 import { toManifest } from './manifest.js';
-import { verifyArtifactFile, verifyArtifactBytes } from './artifacts.js';
+import { verifyArtifactFile } from './artifacts.js';
 import { satisfies } from './semver.js';
 
 /**
@@ -40,11 +49,23 @@ import { satisfies } from './semver.js';
  * Validate a whole registry rooted at a local directory.
  *
  * @param {string} root
- * @param {{hash?: boolean, quiet?: boolean, onCheck?: (message: string) => void}} [options]
+ * @param {{
+ *   containers: import('./containers.js').ContainerRegistry,
+ *   hash?: boolean,
+ *   quiet?: boolean,
+ *   onCheck?: (message: string) => void,
+ * }} options
  * @returns {Promise<ValidationResult>}
  */
-export async function validateRegistry(root, options = {}) {
-  const { hash = true, onCheck } = options;
+export async function validateRegistry(root, options) {
+  const { containers, hash = true, onCheck } = options;
+  if (!containers) {
+    throw new TypeError(
+      'validateRegistry requires a container registry; build one with createCoreContainerRegistry() ' +
+        "and register the adapters for the engines you expect (for Unity: unityAdapter.containerHandlers)",
+    );
+  }
+
   const bag = new DiagnosticBag();
   const note = (message) => {
     bag.note();
@@ -95,6 +116,19 @@ export async function validateRegistry(root, options = {}) {
       bag.error('E-ID-DIR', `${id}: directory name must equal the id '${manifest.id}'`);
     }
 
+    // --- capabilities ---------------------------------------------------
+    for (const [field, list] of [['provides', manifest.provides], ['injects', manifest.injects]]) {
+      for (const capability of list) {
+        if (!isCapability(capability)) {
+          bag.error(
+            'E-CAP-FORMAT',
+            `${id}: ${field} entry ${JSON.stringify(capability)} needs at least two dot-separated ` +
+              `lowercase segments, so it states its namespace`,
+          );
+        }
+      }
+    }
+
     const stray = (await readdir(dir)).filter((name) => !ALLOWED_PAYLOAD_ENTRIES.includes(name));
     if (stray.length > 0) {
       bag.error(
@@ -104,56 +138,94 @@ export async function validateRegistry(root, options = {}) {
       );
     }
 
-    // --- packaging ------------------------------------------------------
-    if (manifest.isBundled) {
-      const convention = manifest.checkArtifactPathConvention();
-      if (!convention.ok) {
-        bag.error('E-ARTIFACT-PATH', `${id}: ${convention.reason}`);
+    // --- targets --------------------------------------------------------
+    if (manifest.engines.length === 0) {
+      bag.error('E-TARGETS-MISSING', `${id}: targets must declare at least one engine`);
+    }
+
+    const declaredNames = new Set();
+    for (const engine of manifest.engines) {
+      const target = manifest.target(engine);
+
+      if (target.minEngineVersion === undefined || target.minEngineVersion === 'undefined') {
+        bag.error(
+          'E-TARGET-REQUIREMENTS',
+          `${id}/${engine}: requirements.minEngineVersion is mandatory; a tool that cannot state its ` +
+            `floor is not admitted`,
+        );
       }
 
-      const declared = manifest.artifact;
-      if (!declared) {
-        bag.error('E-ARTIFACT-MISSING', `${id}: source.kind is bundled but artifacts is empty`);
-      } else {
-        const artifactFile = path.join(root, declared.path);
-        if (!existsSync(artifactFile)) {
-          bag.error('E-ARTIFACT-MISSING', `${id}: declared artifact ${declared.path} does not exist`);
+      if (target.isExternal) {
+        const external = target.external;
+        if (!external?.url || !external?.ref) {
+          bag.error('E-EXTERNAL-INCOMPLETE', `${id}/${engine}: external source needs both url and ref`);
         } else {
-          try {
-            const report = await verifyArtifactFile(artifactFile, declared);
-            note(`${id}: ${report.format}, ${report.size} bytes, sha256 verified, ${report.entries} entries`);
-          } catch (cause) {
-            bag.error(cause.code ?? 'E-ARTIFACT', `${id}: ${cause.message}`);
-          }
+          note(`${id}/${engine}: external ${external.source} ${external.url} @ ${external.ref}`);
         }
+        continue;
+      }
 
-        const artifactsDir = path.join(dir, 'artifacts');
-        if (existsSync(artifactsDir)) {
-          const declaredName = path.basename(declared.path);
-          const undeclared = (await readdir(artifactsDir)).filter((name) => name !== declaredName);
-          if (undeclared.length > 0) {
-            bag.error(
-              'E-ARTIFACT-STRAY',
-              `${id}: artifacts/ holds undeclared file(s): ${undeclared.sort().join(', ')}`,
-            );
-          }
-        }
+      if (!ARTIFACT_TYPE[String(target.type).toUpperCase()] && target.type !== 'file') {
+        bag.error(
+          'E-ARTIFACT-TYPE',
+          `${id}/${engine}: unknown artifact type ${JSON.stringify(target.type)}`,
+        );
+        continue;
       }
-    } else if (manifest.isExternal) {
-      const git = manifest.git;
-      if (!git || !git.url || !git.ref) {
-        bag.error('E-EXTERNAL-INCOMPLETE', `${id}: external source needs both url and ref`);
-      } else {
-        note(`${id}: external ${manifest.source.type} ${git.url} @ ${git.ref}`);
+
+      if (target.artifactPath) declaredNames.add(path.basename(target.artifactPath));
+
+      const convention = target.checkArtifactConvention();
+      if (!convention.ok) {
+        bag.error('E-ARTIFACT-NAME', `${id}/${engine}: ${convention.reason}`);
       }
-      if (Array.isArray(doc.artifacts) && doc.artifacts.length > 0) {
-        bag.error('E-EXTERNAL-ARTIFACT', `${id}: an external source must not declare artifacts`);
+
+      // A core archive must name a core format; an engine container needs a handler.
+      if (target.type === ARTIFACT_TYPE.ARCHIVE && !CORE_ARCHIVE_FORMATS.includes(String(target.format))) {
+        bag.error(
+          'E-ARTIFACT-FORMAT',
+          `${id}/${engine}: format '${target.format}' is not a core archive format ` +
+            `(${CORE_ARCHIVE_FORMATS.join(', ')}); an engine-specific container must be declared ` +
+            `as type package`,
+        );
+      }
+
+      if (!target.artifactPath) {
+        bag.error('E-ARTIFACT-MISSING', `${id}/${engine}: artifact.path is required`);
+        continue;
+      }
+
+      const artifactFile = path.join(root, target.artifactPath);
+      if (!existsSync(artifactFile)) {
+        bag.error('E-ARTIFACT-MISSING', `${id}/${engine}: declared artifact ${target.artifactPath} does not exist`);
+        continue;
+      }
+
+      if (!hash) {
+        note(`${id}/${engine}: hash verification skipped by request`);
+        continue;
+      }
+
+      try {
+        const report = await verifyArtifactFile(artifactFile, target.declaredArtifact, containers);
+        note(
+          `${id}/${engine}: ${report.format ?? 'file'}, ${report.size} bytes, sha256 verified, ` +
+            `${report.items.length} destination(s)`,
+        );
+      } catch (cause) {
+        bag.error(cause.code ?? 'E-ARTIFACT', `${id}/${engine}: ${cause.message}`);
       }
     }
 
-    if (hash === false) {
-      // Only reachable through the explicit --no-hash flag.
-      note(`${id}: hash verification skipped by request`);
+    const artifactsDir = path.join(dir, 'artifacts');
+    if (existsSync(artifactsDir)) {
+      const undeclared = (await readdir(artifactsDir)).filter((name) => !declaredNames.has(name));
+      if (undeclared.length > 0) {
+        bag.error(
+          'E-ARTIFACT-STRAY',
+          `${id}: artifacts/ holds undeclared file(s): ${undeclared.sort().join(', ')}`,
+        );
+      }
     }
 
     manifests.push(manifest);
@@ -161,7 +233,7 @@ export async function validateRegistry(root, options = {}) {
 
   // --- dependencies -----------------------------------------------------
   const byId = new Map(manifests.map((manifest) => [manifest.id, manifest]));
-  note(`${byId.size} manifest(s), checking dependencies`);
+  note(`${byId.size} manifest(s), checking dependencies and capabilities`);
 
   for (const manifest of manifests) {
     for (const dep of manifest.dependencies) {
@@ -189,7 +261,38 @@ export async function validateRegistry(root, options = {}) {
     }
   }
 
-  // Cycle detection over required dependencies only.
+  // --- capabilities: one provider each, every inject satisfiable --------
+  /** @type {Map<string, string[]>} */
+  const providers = new Map();
+  for (const manifest of manifests) {
+    for (const capability of manifest.provides) {
+      if (!providers.has(capability)) providers.set(capability, []);
+      providers.get(capability).push(manifest.id);
+    }
+  }
+  for (const [capability, owners] of providers) {
+    if (owners.length > 1) {
+      bag.error(
+        'E-CAP-CONFLICT',
+        `capability '${capability}' is provided by ${owners.length} tools ` +
+          `(${[...owners].sort().join(', ')}); a consumer of it cannot know which provider it gets`,
+      );
+    }
+  }
+  for (const manifest of manifests) {
+    for (const capability of manifest.injects) {
+      if (!providers.has(capability)) {
+        bag.error(
+          'E-CAP-UNSATISFIED',
+          `${manifest.id}: injects '${capability}' but no tool in the registry provides it`,
+        );
+      } else {
+        note(`${manifest.id} injects '${capability}' satisfied by ${providers.get(capability).join(', ')}`);
+      }
+    }
+  }
+
+  // Cycle detection over required dependencies.
   const graph = new Map(
     manifests.map((manifest) => [
       manifest.id,
@@ -279,4 +382,4 @@ function result(bag, manifests) {
   };
 }
 
-export { verifyArtifactBytes };
+export { UNPACK };

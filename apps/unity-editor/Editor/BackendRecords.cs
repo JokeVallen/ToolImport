@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace DevCat.UnityDevCommonLib.ImportTool.Editor
+namespace DevCat.ToolImport.Editor
 {
     /// <summary>
     /// Parses the backend's <c>--records</c> output.

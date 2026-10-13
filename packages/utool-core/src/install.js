@@ -3,67 +3,62 @@
  *
  * Two strictly separated phases:
  *
- *   planInstallation()  fetches and verifies every artifact in the plan, and
- *                       reports exactly what would be written. Nothing touches
- *                       the project. This is what `--dry-run` prints and what
- *                       the Unity front end shows for confirmation.
+ *   planInstallation()  fetches and verifies every artifact for every engine in
+ *                       the plan, and reports exactly what would be written.
+ *                       Nothing touches the project. This is what --dry-run prints
+ *                       and what a front end shows for confirmation.
  *
- *   executeInstall()    writes the files and records one receipt per tool.
+ *   executeInstall()    writes the payloads and records one receipt per tool.
  *
  * The separation is the point: a plan whose artifacts fail verification never
- * reaches the write phase, so a half-installed project cannot happen through a
- * bad download.
+ * reaches the write phase, so a bad download cannot half-install a project.
+ *
+ * All container knowledge is delegated. The core writes single-file payloads; a
+ * container is written by whichever handler is registered for its format, through
+ * a write context that owns path resolution. A handler therefore never decides
+ * where the project root is, and cannot write outside it by accident.
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { gunzipSync } from 'node:zlib';
 
 import { ArtifactError } from './errors.js';
-import { ARTIFACT_FORMAT } from './format.js';
-import { isSafeEntry, readUnitypackagePathnames, verifyArtifactBytes } from './artifacts.js';
-import { readAllEntries as readZipEntries } from './zip.js';
-
-/**
- * @typedef {Object} PlannedFile
- * @property {string} path project-relative destination
- * @property {number} size
- */
+import { ARTIFACT_TYPE, UNPACK } from './format.js';
+import { isSafeEntryName, verifyArtifactBytes } from './artifacts.js';
 
 /**
  * @typedef {Object} PlannedTool
  * @property {string} id
  * @property {string} version
- * @property {string} sourceKind
+ * @property {string} engine
+ * @property {string} artifactType
  * @property {string|null} artifactPath
  * @property {string|null} artifactFormat
  * @property {number|null} size
  * @property {string|null} sha256
- * @property {PlannedFile[]} files
+ * @property {{path: string, size: number}[]} items
  * @property {string|null} contentRoot
+ * @property {string|null} targetPath
+ * @property {string|null} subdirectory
  * @property {boolean} editorOnly
  * @property {string[]} installedBecause
  * @property {boolean} alreadyInstalled
- * @property {string|null} skipped reason, when the tool cannot be installed by this backend
- */
-
-/**
- * @typedef {Object} InstallPlanReport
- * @property {PlannedTool[]} tools
- * @property {number} totalBytes
- * @property {boolean} ok
+ * @property {string|null} skipped
  */
 
 /**
  * Fetch and verify every artifact in a resolved plan.
  *
- * @param {import('./resolver.js').Plan} plan
+ * One planned tool is produced per (tool, engine) pair, because a cross-engine
+ * tool installs a different artifact into each engine.
+ *
+ * @param {{steps: object[], problems: object[]}} plan
  * @param {{fetchArtifact: (p: string) => Promise<Buffer>}} source
- * @returns {Promise<InstallPlanReport>}
+ * @param {import('./containers.js').ContainerRegistry} containers
+ * @returns {Promise<{tools: PlannedTool[], totalBytes: number, ok: boolean}>}
  */
-export async function planInstallation(plan, source) {
+export async function planInstallation(plan, source, containers) {
   /** @type {PlannedTool[]} */
   const tools = [];
   let totalBytes = 0;
@@ -72,93 +67,63 @@ export async function planInstallation(plan, source) {
   for (const step of plan.steps) {
     const { manifest } = step;
 
-    if (manifest.isExternal) {
-      // The core deliberately does not shell out to git. Resolving an external
-      // git source is the caller's job (CLI wrapper or the Unity front end),
-      // which then hands the resolved tree back in.
-      tools.push({
+    for (const engine of step.engines) {
+      const target = manifest.target(engine);
+      const base = {
         id: manifest.id,
         version: manifest.version,
-        sourceKind: manifest.sourceKind,
-        artifactPath: null,
-        artifactFormat: null,
+        engine,
+        artifactType: target.type,
+        artifactPath: target.artifactPath,
+        artifactFormat: target.format ?? null,
         size: null,
         sha256: null,
-        files: [],
-        contentRoot: manifest.contentRoot ?? null,
-        editorOnly: manifest.editorOnly,
+        items: [],
+        contentRoot: target.contentRoot,
+        targetPath: target.targetPath,
+        subdirectory: target.subdirectory,
+        editorOnly: target.editorOnly,
         installedBecause: step.installedBecause,
         alreadyInstalled: step.alreadyInstalled,
-        skipped: manifest.isGit
-          ? `external git source (${manifest.git.url} @ ${manifest.git.ref}) is resolved by the caller`
-          : 'external source',
-      });
-      continue;
-    }
+        skipped: null,
+      };
 
-    const declared = manifest.artifact;
-    if (!declared) {
-      ok = false;
+      // --- external: the caller resolves it, the core records where -----
+      if (target.isExternal) {
+        const external = target.external;
+        tools.push({
+          ...base,
+          skipped:
+            external?.url && external?.ref
+              ? `external ${external.source} source (${external.url} @ ${external.ref}) is resolved by the caller`
+              : 'external source is incomplete',
+        });
+        continue;
+      }
+
+      const declared = target.declaredArtifact;
+
+      let bytes;
+      try {
+        bytes = await source.fetchArtifact(declared.path);
+      } catch (cause) {
+        ok = false;
+        tools.push({ ...base, skipped: `fetch failed: ${cause.message}` });
+        continue;
+      }
+
+      // Size, digest, container magic and destination safety. Throws on any
+      // mismatch, which aborts the whole plan before a single byte is written.
+      const report = verifyArtifactBytes(bytes, declared, containers, declared.path);
+      totalBytes += report.size;
+
       tools.push({
-        id: manifest.id,
-        version: manifest.version,
-        sourceKind: manifest.sourceKind,
-        artifactPath: manifest.artifactPath,
-        artifactFormat: manifest.artifactFormat,
-        size: null,
-        sha256: null,
-        files: [],
-        contentRoot: manifest.contentRoot ?? null,
-        editorOnly: manifest.editorOnly,
-        installedBecause: step.installedBecause,
-        alreadyInstalled: step.alreadyInstalled,
-        skipped: 'manifest declares kind: bundled but carries no artifacts entry',
+        ...base,
+        size: report.size,
+        sha256: report.sha256,
+        items: report.items.map((item) => ({ path: item.path, size: item.size })),
       });
-      continue;
     }
-
-    let bytes;
-    try {
-      bytes = await source.fetchArtifact(declared.path);
-    } catch (cause) {
-      ok = false;
-      tools.push({
-        id: manifest.id,
-        version: manifest.version,
-        sourceKind: manifest.sourceKind,
-        artifactPath: declared.path,
-        artifactFormat: declared.format,
-        size: declared.size,
-        sha256: null,
-        files: [],
-        contentRoot: manifest.contentRoot ?? null,
-        editorOnly: manifest.editorOnly,
-        installedBecause: step.installedBecause,
-        alreadyInstalled: step.alreadyInstalled,
-        skipped: `fetch failed: ${cause.message}`,
-      });
-      continue;
-    }
-
-    // Throws on any mismatch, which aborts the whole plan before any write.
-    const report = verifyArtifactBytes(bytes, declared, declared.path);
-    totalBytes += report.size;
-
-    tools.push({
-      id: manifest.id,
-      version: manifest.version,
-      sourceKind: manifest.sourceKind,
-      artifactPath: declared.path,
-      artifactFormat: declared.format,
-      size: report.size,
-      sha256: report.sha256,
-      files: report.files.map((file) => ({ path: file, size: 0 })),
-      contentRoot: manifest.contentRoot ?? null,
-      editorOnly: manifest.editorOnly,
-      installedBecause: step.installedBecause,
-      alreadyInstalled: step.alreadyInstalled,
-      skipped: null,
-    });
   }
 
   return { tools, totalBytes, ok };
@@ -167,168 +132,213 @@ export async function planInstallation(plan, source) {
 /**
  * Execute a verified plan.
  *
- * @param {InstallPlanReport} report
+ * @param {{tools: PlannedTool[]}} report
  * @param {{
  *   projectRoot: string,
  *   source: {fetchArtifact: (p: string) => Promise<Buffer>},
+ *   containers: import('./containers.js').ContainerRegistry,
  *   receiptStore: import('./receipts.js').ReceiptStore,
  *   registryRef?: string|null,
  *   registryCommit?: string|null,
  *   now?: () => Date,
  * }} options
- * @returns {Promise<{installed: {id: string, files: string[]}[], skipped: {id: string, reason: string}[], bytes: number}>}
  */
 export async function executeInstall(report, options) {
-  const { projectRoot, source, receiptStore } = options;
+  const { projectRoot, source, containers, receiptStore } = options;
   const now = options.now ?? (() => new Date());
 
-  /** @type {{id: string, files: string[]}[]} */
+  /** @type {{id: string, engine: string, files: string[]}[]} */
   const installed = [];
-  /** @type {{id: string, reason: string}[]} */
+  /** @type {{id: string, engine: string, reason: string}[]} */
   const skipped = [];
   let bytes = 0;
 
+  // One receipt per TOOL, not per (tool, engine): installing is one decision, so
+  // uninstalling should be one decision too, whatever engines it touched.
+  /** @type {Map<string, {version: string, sha256: string, format: string|null, files: string[], engines: string[], installedBecause: string[]}>} */
+  const byTool = new Map();
+
   for (const tool of report.tools) {
     if (tool.skipped) {
-      skipped.push({ id: tool.id, reason: tool.skipped });
+      skipped.push({ id: tool.id, engine: tool.engine, reason: tool.skipped });
       continue;
     }
 
     const artifactBytes = await source.fetchArtifact(tool.artifactPath);
-    let written;
-
-    if (tool.artifactFormat === ARTIFACT_FORMAT.UNITYPACKAGE) {
-      written = await extractUnitypackage(artifactBytes, projectRoot);
-    } else if (tool.artifactFormat === ARTIFACT_FORMAT.ZIP) {
-      written = await extractZip(artifactBytes, projectRoot, tool.contentRoot);
-    } else {
-      throw new ArtifactError(
-        'E-ARTIFACT-FORMAT',
-        `${tool.id}: unsupported artifact format ${JSON.stringify(tool.artifactFormat)}`,
-      );
-    }
-
     bytes += artifactBytes.length;
 
-    await receiptStore.write({
-      toolId: tool.id,
+    const written = await writePayload(artifactBytes, tool, containers, projectRoot);
+
+    const files = written
+      .filter((item) => !item.directory)
+      .map((item) => String(item.path).replace(/\\/g, '/'));
+
+    installed.push({ id: tool.id, engine: tool.engine, files });
+
+    const receipt = byTool.get(tool.id) ?? {
       version: tool.version,
-      artifactSha256: tool.sha256 ?? sha256(artifactBytes),
-      artifactFormat: tool.artifactFormat,
+      sha256: tool.sha256 ?? sha256Of(artifactBytes),
+      format: tool.artifactFormat,
+      files: [],
+      engines: [],
+      installedBecause: tool.installedBecause,
+    };
+    for (const file of files) {
+      if (!receipt.files.includes(file)) receipt.files.push(file);
+    }
+    if (!receipt.engines.includes(tool.engine)) receipt.engines.push(tool.engine);
+    byTool.set(tool.id, receipt);
+  }
+
+  for (const [toolId, receipt] of byTool) {
+    await receiptStore.write({
+      toolId,
+      version: receipt.version,
+      artifactSha256: receipt.sha256,
+      artifactFormat: receipt.format,
       installedAtUtc: now().toISOString(),
       registryRef: options.registryRef ?? null,
       registryCommit: options.registryCommit ?? null,
-      installedFiles: written,
-      installedByTools: tool.installedBecause,
+      installedEngines: [...receipt.engines].sort(),
+      installedFiles: [...receipt.files].sort(),
+      installedByTools: receipt.installedBecause,
     });
-
-    installed.push({ id: tool.id, files: written });
   }
 
   return { installed, skipped, bytes };
 }
 
-function sha256(bytes) {
+/**
+ * Write one engine's payload and return the project-relative destinations.
+ *
+ * Three cases, in the order they must be decided:
+ *   file      no container at all, just a destination
+ *   none      the container is placed as a file, not opened
+ *   auto      the registered handler for the format opens it
+ */
+async function writePayload(bytes, tool, containers, projectRoot) {
+  const declared = declaredOf(tool);
+
+  if (tool.artifactType === ARTIFACT_TYPE.FILE) {
+    const destination = tool.targetPath ?? tool.items[0]?.path;
+    if (!destination) {
+      throw new ArtifactError(
+        'E-ARTIFACT-TARGETPATH',
+        `${tool.id}/${tool.engine}: single-file payload has no targetPath`,
+      );
+    }
+    const absolute = path.join(projectRoot, destination);
+    await mkdir(path.dirname(absolute), { recursive: true });
+    await writeFile(absolute, bytes);
+    return [{ path: destination, size: bytes.length }];
+  }
+
+  if (tool.artifactFormat === null || tool.artifactFormat === undefined) {
+    throw new ArtifactError(
+      'E-ARTIFACT-FORMAT',
+      `${tool.id}/${tool.engine}: artifact type '${tool.artifactType}' needs a format`,
+    );
+  }
+
+  if (declared.unpack === UNPACK.NONE) {
+    const destination =
+      tool.targetPath ??
+      path.posix.join(tool.contentRoot ?? '', path.posix.basename(String(tool.artifactPath)));
+    const absolute = path.join(projectRoot, destination);
+    if (!isSafeEntryName(destination)) {
+      throw new ArtifactError(
+        'E-ARTIFACT-UNSAFE',
+        `${tool.id}/${tool.engine}: refusing to write outside the project: ${destination}`,
+      );
+    }
+    await mkdir(path.dirname(absolute), { recursive: true });
+    await writeFile(absolute, bytes);
+    return [{ path: destination, size: bytes.length }];
+  }
+
+  const handler = containers.for(String(tool.artifactFormat));
+  if (!handler) {
+    throw new ArtifactError(
+      'E-ARTIFACT-FORMAT-UNSUPPORTED',
+      `${tool.id}/${tool.engine}: no handler registered for format '${tool.artifactFormat}'. ` +
+        `Registered: ${containers.formats().join(', ') || '(none)'}`,
+    );
+  }
+  return handler.extract(bytes, declared, createWriteContext(projectRoot, tool));
+}
+
+/** Reconstruct the declared-artifact shape a handler expects. */
+function declaredOf(tool) {
+  return {
+    type: tool.artifactType,
+    format: tool.artifactFormat,
+    path: tool.artifactPath,
+    size: tool.size,
+    sha256: tool.sha256,
+    contentRoot: tool.contentRoot,
+    targetPath: tool.targetPath,
+    subdirectory: tool.subdirectory,
+    files: [],
+    editorOnly: tool.editorOnly,
+  };
+}
+
+function sha256Of(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
 /**
- * Expand a .unitypackage into the project.
+ * The write context handed to container handlers.
  *
- * Each GUID folder contributes one destination: its `pathname`. Destinations are
- * already project-relative (they begin with `Assets/`), so no contentRoot is
- * applied -- applying one would double-prefix.
- *
- * `asset.meta` accompanies `asset` in the archive. Unity regenerates metadata on
- * import, and writing a stale .meta over an existing file is worse than letting
- * the editor create a fresh one, so only the asset is written.
- *
- * @returns {Promise<string[]>} project-relative paths written
+ * It owns contentRoot and the project root, so a handler reports a relative path
+ * and this decides the absolute one. That keeps path safety in one place instead
+ * of trusting each adapter to get it right.
  */
-export async function extractUnitypackage(gzBytes, projectRoot) {
-  const raw = gunzipSync(gzBytes);
-  /** @type {Map<string, {pathname: string, asset: Buffer|null}>} */
-  const folders = new Map();
+function createWriteContext(projectRoot, tool) {
+  const contentRoot = String(tool.contentRoot ?? '').replace(/^[/\\]+|[/\\]+$/g, '');
 
-  let offset = 0;
-  while (offset + 512 <= raw.length) {
-    const header = raw.subarray(offset, offset + 512);
-    if (header.every((byte) => byte === 0)) break;
+  const relativeOf = (itemPath) => {
+    const normalised = String(itemPath).replace(/\\/g, '/').replace(/^\.\//, '');
+    return contentRoot ? `${contentRoot}/${normalised}` : normalised;
+  };
 
-    const name = readNullTerminated(header, 0, 100);
-    const prefix = readNullTerminated(header, 345, 155);
-    const sizeField = readNullTerminated(header, 124, 12).trim();
-    const size = sizeField === '' ? 0 : parseInt(sizeField, 8);
-    const fullName = prefix ? `${prefix}/${name}` : name;
-    const body = raw.subarray(offset + 512, offset + 512 + size);
+  return {
+    projectRoot,
+    engine: tool.engine,
+    toolId: tool.id,
 
-    const slash = fullName.lastIndexOf('/');
-    if (slash > 0) {
-      const guid = fullName.slice(0, slash);
-      const leaf = fullName.slice(slash + 1);
-      if (!folders.has(guid)) folders.set(guid, { pathname: '', asset: null });
-      const folder = folders.get(guid);
-      if (leaf === 'pathname') folder.pathname = body.toString('utf8').replace(/\0+$/, '').trim();
-      else if (leaf === 'asset') folder.asset = Buffer.from(body);
-    }
+    /** Project-relative destination, for the receipt. */
+    relative: relativeOf,
 
-    offset += 512 + Math.ceil(size / 512) * 512;
-  }
+    /** Absolute destination, refused when it would leave the project. */
+    resolve(itemPath) {
+      const relative = relativeOf(itemPath);
+      if (!isSafeEntryName(relative)) {
+        throw new ArtifactError(
+          'E-ARTIFACT-UNSAFE',
+          `${tool.id}/${tool.engine}: refusing to write outside the project: ${relative}`,
+        );
+      }
+      return path.join(projectRoot, relative);
+    },
 
-  const written = [];
-  for (const [, folder] of folders) {
-    if (!folder.pathname) continue;
-    if (!isSafeEntry(folder.pathname)) {
-      throw new ArtifactError(
-        'E-ARTIFACT-UNSAFE',
-        `pathname '${folder.pathname}' escapes the project root`,
-      );
-    }
-    const destination = path.join(projectRoot, folder.pathname);
+    async ensureDirectory(absolutePath) {
+      await mkdir(absolutePath, { recursive: true });
+    },
 
-    if (folder.asset === null || folder.asset.length === 0) {
-      // A folder entry in the package: create the directory, nothing to write.
-      await mkdir(destination, { recursive: true });
-      continue;
-    }
-
-    await mkdir(path.dirname(destination), { recursive: true });
-    await writeFile(destination, folder.asset);
-    written.push(folder.pathname.replace(/\\/g, '/'));
-  }
-  return written.sort();
+    /** Write one item that carries its own bytes. */
+    async writeItem(item) {
+      if (!item.data) {
+        throw new ArtifactError(
+          'E-HANDLER-CONTRACT',
+          `container handler returned an item without bytes for '${item.path}'`,
+        );
+      }
+      const destination = this.resolve(item.path);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(destination, item.data);
+    },
+  };
 }
 
-/**
- * Extract a plain zip into the project.
- *
- * @param {Buffer} zipBytes
- * @param {string} projectRoot
- * @param {string|null} contentRoot where to place it, relative to the project
- * @returns {Promise<string[]>} project-relative paths written
- */
-export async function extractZip(zipBytes, projectRoot, contentRoot) {
-  const prefix = (contentRoot ?? '').replace(/^[/\\]+|[/\\]+$/g, '');
-  const written = [];
-
-  for (const entry of readZipEntries(zipBytes)) {
-    const normalised = entry.name.replace(/\\/g, '/');
-    if (!isSafeEntry(normalised)) {
-      throw new ArtifactError('E-ARTIFACT-UNSAFE', `zip entry '${entry.name}' escapes the extraction root`);
-    }
-    const relative = prefix ? `${prefix}/${normalised}` : normalised;
-    const destination = path.join(projectRoot, relative);
-    await mkdir(path.dirname(destination), { recursive: true });
-    await writeFile(destination, entry.data);
-    written.push(relative);
-  }
-  return written.sort();
-}
-
-function readNullTerminated(buffer, start, length) {
-  const slice = buffer.subarray(start, start + length);
-  const end = slice.indexOf(0);
-  return slice.subarray(0, end === -1 ? slice.length : end).toString('utf8');
-}
-
-export { readUnitypackagePathnames };
+export { ARTIFACT_TYPE, UNPACK };

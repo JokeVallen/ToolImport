@@ -9,7 +9,7 @@ Editor/
 ├─ CliRunner.cs          locates and runs the backend CLI, captures its output
 ├─ BackendRecords.cs     parses the line-oriented --records stream
 ├─ ImportToolWindow.cs   the window: list, details, verify, install
-└─ DevCat.UnityDevCommonLib.ImportTool.Editor.asmdef
+└─ DevCat.ToolImport.Editor.asmdef
 ```
 
 ## Why so thin
@@ -18,8 +18,8 @@ If this project has **compile errors**, Unity loads no editor assembly, so nothi
 under `Editor/` runs — the window cannot open and cannot help. The backend can:
 
 ```pwsh
-node apps/cli/bin/utool.js validate ../UnityDevCommonLib
-node apps/cli/bin/utool.js plan core-editor-utils --registry ../UnityDevCommonLib
+node apps/cli/bin/utool.js validate ../DevCatToolRegistry
+node apps/cli/bin/utool.js plan core-editor-utils --registry ../DevCatToolRegistry
 node apps/cli/bin/utool.js install core-editor-utils --project "C:\path\to\UnityProject"
 ```
 
@@ -41,9 +41,9 @@ The window resolves the backend and registry in this order:
 
 | What | Looked up as |
 | --- | --- |
-| CLI script | `UTOOL_CLI` env var, else a `UnityDevCommonLib_FrontToolsDev` checkout found by walking up from the project |
+| CLI script | `UTOOL_CLI` env var, else a `UnityToolImport` checkout found by walking up from the project |
 | Node | `UTOOL_NODE` env var, else `node` on `PATH` |
-| Registry | `UTOOL_REGISTRY` env var, else a sibling `UnityDevCommonLib` checkout, else the published GitHub raw URL |
+| Registry | `UTOOL_REGISTRY` env var, else a sibling `DevCatToolRegistry` checkout, else the published GitHub raw URL |
 
 Once this is a UPM package, drop `Editor/` into the project (or add the package
 by Git URL) and run `npm install` inside the backend checkout so the `yaml`

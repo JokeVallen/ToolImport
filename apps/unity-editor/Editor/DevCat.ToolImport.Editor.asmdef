@@ -1,6 +1,6 @@
 {
-  "name": "DevCat.UnityDevCommonLib.ImportTool.Editor",
-  "rootNamespace": "DevCat.UnityDevCommonLib.ImportTool.Editor",
+  "name": "DevCat.ToolImport.Editor",
+  "rootNamespace": "DevCat.ToolImport.Editor",
   "references": [],
   "includePlatforms": [
     "Editor"

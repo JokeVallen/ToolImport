@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "utool: the backend CLI that inspects, validates and installs UnityDevCommonLib payloads without Unity running.",
+  "description": "utool: the backend CLI that inspects, validates and installs DevCatToolRegistry payloads without Unity running.",
   "license": "MIT",
   "bin": {
     "utool": "bin/utool.js"
