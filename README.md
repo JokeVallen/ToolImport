@@ -15,8 +15,18 @@ cleanly later.
 | Overview 总览 | [README.en.md](README.en.md) | [README.zh-CN.md](README.zh-CN.md) |
 | Architecture 架构 | [docs/architecture.en.md](docs/architecture.en.md) | [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) |
 | Decisions 决策记录 | [docs/decisions.en.md](docs/decisions.en.md) | [docs/decisions.zh-CN.md](docs/decisions.zh-CN.md) |
-| Unity front end Unity 前端 | [frontends/unity-editor/README.md](frontends/unity-editor/README.md) | （英文即可，见下） |
 | Changelog 变更记录 | [CHANGELOG.en.md](CHANGELOG.en.md) | [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md) |
+| Unity front end Unity 前端 | [frontends/unity-editor/README.md](frontends/unity-editor/README.md) | 待补（见下） |
+
+`frontends/unity-editor/README.md` is still English-only, unlike everything else here.
+It documents how to drop the Editor assembly into a project and why the front end is
+deliberately thin, both of which overlap
+[docs/architecture](docs/architecture.zh-CN.md); a Chinese version is pending rather
+than intentionally absent.
+
+`frontends/unity-editor/README.md` 目前仍是纯英文，与本仓库其它文档不一致。它讲的是如何把
+Editor 程序集放进工程、以及前端为什么刻意做薄——这两点与
+[docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) 有重叠。中文版是**待补**，不是有意省略。
 
 The normative data contract lives in the registry repository:
 [`../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md`](../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md)
