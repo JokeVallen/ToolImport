@@ -158,6 +158,47 @@ JSON 解析会重复属于后端的逻辑。把记录流按 TAB 切开小到可�
 详情面板**刻意不写死需求键名**，而是把后端报出的键原样打印。哪些键存在是适配器的事，所以适配器
 新增一个键时，窗口不需要改。
 
+### 文件构成
+
+```text
+frontends/unity-editor/Editor/
+├─ CliRunner.cs         定位并运行后端 CLI，捕获其输出
+├─ BackendRecords.cs    解析行记录（--records）流
+├─ ImportToolWindow.cs  窗口：列表、详情、校验、安装
+└─ DevCat.ToolImport.Editor.asmdef
+```
+
+### 放进一个工程
+
+**为什么值得做薄**：如果工程有**编译错误**，Unity 不加载任何编辑器程序集，`Editor/` 下的东西全都
+不会运行——窗口打不开，也帮不上忙。但后端可以：
+
+```pwsh
+node apps/cli/bin/utool.js validate ../DevCatToolRegistry
+node apps/cli/bin/utool.js plan core-editor-utils --registry ../DevCatToolRegistry
+node apps/cli/bin/utool.js install core-editor-utils --project "C:\path\to\UnityProject"
+```
+
+**这就是整个拆分的理由**：窗口只是「一个不依赖 Unity 也能工作的工具」之上的便利层。
+
+窗口按以下顺序定位后端与注册库：
+
+| 找什么 | 查找方式 |
+| --- | --- |
+| CLI 脚本 | `UTOOL_CLI` 环境变量；否则从工程向上走，找 `UnityToolImport` 检出 |
+| Node | `UTOOL_NODE` 环境变量；否则用 `PATH` 上的 `node` |
+| 注册库 | `UTOOL_REGISTRY` 环境变量；否则找兄弟目录 `DevCatToolRegistry`；再否则用已发布的 GitHub raw URL |
+
+等到前端成为 UPM 包之后，把 `Editor/` 放进工程（或按 Git URL 添加该包），并在后端检出里跑一次
+`npm install`，让 `yaml` 依赖就位。
+
+### 这里尚未实现
+
+- **卸载。** 后端能算出精确的卸载计划（`utool uninstall --dry-run`）并做共享文件引用计数，但**执行**
+  是刻意仍然关闭的：删文件是最后才该打开的能力。
+- **外部 git 求解。** 后端把这类工具报告为「由调用方求解」；前端显示上游 URL 与 ref，而不是假装
+  安装它。
+
 ---
 
 ## 已定下的边界

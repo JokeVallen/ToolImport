@@ -178,6 +178,51 @@ The detail pane **deliberately does not hard-code requirement key names**; it pr
 whatever the backend reports. Which keys exist is the adapter's business, so adding one
 requires no change here.
 
+### File layout
+
+```text
+frontends/unity-editor/Editor/
+├─ CliRunner.cs         locate and run the backend CLI, capture its output
+├─ BackendRecords.cs    parse the line-oriented --records stream
+├─ ImportToolWindow.cs  the window: list, details, verify, install
+└─ DevCat.ToolImport.Editor.asmdef
+```
+
+### Installing it into a project
+
+**Why it is worth keeping thin**: if the project has **compile errors**, Unity loads no
+editor assembly, so nothing under `Editor/` runs — the window cannot open and cannot
+help. The backend can:
+
+```pwsh
+node apps/cli/bin/utool.js validate ../DevCatToolRegistry
+node apps/cli/bin/utool.js plan core-editor-utils --registry ../DevCatToolRegistry
+node apps/cli/bin/utool.js install core-editor-utils --project "C:\path\to\UnityProject"
+```
+
+**That is the whole reason for the split**: the window is a convenience layer over a
+tool that works without Unity.
+
+The window resolves the backend and the registry in this order:
+
+| What | Looked up as |
+| --- | --- |
+| CLI script | `UTOOL_CLI` env var, else a `UnityToolImport` checkout found by walking up from the project |
+| Node | `UTOOL_NODE` env var, else `node` on `PATH` |
+| Registry | `UTOOL_REGISTRY` env var, else a sibling `DevCatToolRegistry` checkout, else the published GitHub raw URL |
+
+Once the front end is a UPM package, drop `Editor/` into the project (or add the package
+by Git URL) and run `npm install` inside the backend checkout so the `yaml` dependency
+is present.
+
+### Not yet implemented here
+
+- **Uninstall.** The backend computes an exact uninstall plan
+  (`utool uninstall --dry-run`) with shared-file reference counting, but execution is
+  deliberately still disabled: removing files is the last thing to enable.
+- **External git resolution.** The backend reports such tools as caller-resolved; the
+  front end shows the upstream URL and ref instead of pretending to install them.
+
 ---
 
 ## Boundaries already settled

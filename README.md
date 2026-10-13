@@ -13,20 +13,20 @@ cleanly later.
 | | English | 中文（主） |
 | --- | --- | --- |
 | Overview 总览 | [README.en.md](README.en.md) | [README.zh-CN.md](README.zh-CN.md) |
-| Architecture 架构 | [docs/architecture.en.md](docs/architecture.en.md) | [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) |
+| Architecture 架构（含 Unity 前端） | [docs/architecture.en.md](docs/architecture.en.md) | [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) |
 | Decisions 决策记录 | [docs/decisions.en.md](docs/decisions.en.md) | [docs/decisions.zh-CN.md](docs/decisions.zh-CN.md) |
 | Changelog 变更记录 | [CHANGELOG.en.md](CHANGELOG.en.md) | [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md) |
-| Unity front end Unity 前端 | [frontends/unity-editor/README.md](frontends/unity-editor/README.md) | 待补（见下） |
 
-`frontends/unity-editor/README.md` is still English-only, unlike everything else here.
-It documents how to drop the Editor assembly into a project and why the front end is
-deliberately thin, both of which overlap
-[docs/architecture](docs/architecture.zh-CN.md); a Chinese version is pending rather
-than intentionally absent.
+The Unity front end has no README of its own: it lives in the architecture document,
+under *Unity front end*, in both languages. It used to have a separate English-only
+README, which duplicated the architecture section and would eventually have disagreed
+with it — a duplicate document drifts, and this project already had to retire one stale
+architecture document for exactly that reason. `frontends/unity-editor/` now contains
+only the C# sources and their assembly definition.
 
-`frontends/unity-editor/README.md` 目前仍是纯英文，与本仓库其它文档不一致。它讲的是如何把
-Editor 程序集放进工程、以及前端为什么刻意做薄——这两点与
-[docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) 有重叠。中文版是**待补**，不是有意省略。
+Unity 前端**没有**自己的 README：它就在架构文档的「Unity 前端」一节里，中英各有。它原来有一份
+独立的纯英文 README，与架构文档重复，迟早会与之矛盾——重复的文档必然漂移，而本项目已经因为同一
+原因退役过一份过期架构文档。现在 `frontends/unity-editor/` 下只有 C# 源码与程序集定义。
 
 The normative data contract lives in the registry repository:
 [`../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md`](../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md)
