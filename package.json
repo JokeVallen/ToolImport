@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "test": "node --test \"packages/utool-core/test/*.test.js\"",
+    "check:csharp": "node tools/csharp-check.mjs",
     "cli": "node apps/cli/bin/utool.js",
     "validate": "node apps/cli/bin/utool.js validate ../DevCatToolRegistry"
   },

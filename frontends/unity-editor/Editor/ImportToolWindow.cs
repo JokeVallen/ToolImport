@@ -26,6 +26,13 @@ namespace DevCat.ToolImport.Editor
         private const string DefaultRemoteRegistry =
             "https://raw.githubusercontent.com/JokeVallen/DevCatToolRegistry/main";
 
+        /// <summary>
+        /// Engines this front end offers. Unity first because this is the Unity
+        /// editor; the others exist so a cross-engine tool's second target is
+        /// visible and installable from here rather than hidden.
+        /// </summary>
+        private static readonly string[] CandidateEngines = { "unity", "godot" };
+
         private readonly List<AvailableTool> tools = new List<AvailableTool>();
         private Vector2 listScroll;
         private Vector2 detailScroll;
@@ -35,6 +42,9 @@ namespace DevCat.ToolImport.Editor
         private BackendRecords detailRecords;
         private BackendRecords planRecords;
         private bool busy;
+
+        /// <summary>Engine to install into; chosen in the toolbar.</summary>
+        private string EngineName = "unity";
 
         [MenuItem("Window/DevCatToolRegistry/工具库导入工具 (Import Tool)", priority = 1200)]
         private static void Open()
@@ -91,6 +101,27 @@ namespace DevCat.ToolImport.Editor
                 registryLocator = ResolveRegistryLocator();
             }
 
+            // Which engine to install into. This front end is the Unity one, so
+            // unity is the default, but the backend is engine-agnostic and a tool
+            // may target several engines. Choosing one here is what makes a
+            // cross-engine tool's other targets visible instead of invisible.
+            GUILayout.Label("Engine:", EditorStyles.miniLabel, GUILayout.Width(48f));
+            foreach (string engine in CandidateEngines)
+            {
+                bool active = engine == EngineName;
+                if (GUILayout.Toggle(active, engine, EditorStyles.toolbarButton, GUILayout.Width(60f)) && !active)
+                {
+                    EngineName = engine;
+                    // The selection is engine-specific, so the plan from the other
+                    // engine must not be shown as if it still applied.
+                    planRecords = null;
+                    if (!string.IsNullOrEmpty(selectedId))
+                    {
+                        Select(selectedId);
+                    }
+                }
+            }
+
             if (busy)
             {
                 GUILayout.Label("working...", EditorStyles.miniLabel, GUILayout.Width(80f));
@@ -112,10 +143,16 @@ namespace DevCat.ToolImport.Editor
             foreach (AvailableTool tool in tools)
             {
                 bool selected = tool.Id == selectedId;
+
+                // The tooltip is engine-neutral on purpose: engine floors live in
+                // TARGET records, and this list does not fetch them. Adding a
+                // per-engine tooltip here would mean issuing `show` for every row.
                 var label = new GUIContent(
-                    tool.DisplayName + "  " + tool.Version + (tool.IsExternal ? "  [external]" : string.Empty),
+                    tool.DisplayName + "  " + tool.Version +
+                        (tool.Supports(EngineName) ? string.Empty : "  [not " + EngineName + "]"),
                     tool.Id + "\n" + tool.Type +
-                    "\nmin Unity " + tool.MinUnityVersion + ", min .NET " + tool.MinDotNetVersion +
+                    "\nengines: " + tool.Engines +
+                    (string.IsNullOrEmpty(tool.Provides) ? string.Empty : "\nprovides: " + tool.Provides) +
                     (string.IsNullOrEmpty(tool.Dependencies) ? string.Empty : "\ndepends on " + tool.Dependencies));
 
                 // Unity has a string-style overload for GUILayout.Toggle, which
@@ -155,20 +192,67 @@ namespace DevCat.ToolImport.Editor
             EditorGUILayout.LabelField(detailRecords.Detail("description"), EditorStyles.wordWrappedLabel);
 
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Requirements", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("Minimum Unity: " + detailRecords.Detail("minUnityVersion"));
-            EditorGUILayout.LabelField("Minimum .NET API level: " + detailRecords.Detail("minDotNetVersion"));
-            EditorGUILayout.LabelField("Source: " + detailRecords.Detail("sourceKind") +
-                " (" + detailRecords.Detail("sourceType") + ")");
+            EditorGUILayout.LabelField("Capabilities", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Engines: " + detailRecords.Detail("engines"));
+            EditorGUILayout.LabelField(
+                "Provides: " + (string.IsNullOrEmpty(detailRecords.Detail("provides"))
+                    ? "(none)"
+                    : detailRecords.Detail("provides")),
+                EditorStyles.wordWrappedLabel);
+            EditorGUILayout.LabelField(
+                "Injects: " + (string.IsNullOrEmpty(detailRecords.Detail("injects"))
+                    ? "(none)"
+                    : detailRecords.Detail("injects")),
+                EditorStyles.wordWrappedLabel);
 
-            if (detailRecords.Detail("sourceKind") == "external")
+            // Engine-specific requirements, rendered per engine from TARGET records.
+            // The window deliberately does not name requirement keys: which keys
+            // exist is the engine adapter's business, so it prints whatever the
+            // backend reports and stays correct when an adapter adds one.
+            var targets = new List<ToolTargetInfo>();
+            foreach (string[] fields in detailRecords.Of("TARGET"))
             {
-                EditorGUILayout.LabelField("Upstream: " + detailRecords.Detail("gitUrl") +
-                    " @ " + detailRecords.Detail("gitRef"), EditorStyles.wordWrappedLabel);
-                EditorGUILayout.HelpBox(
-                    "This entry stores metadata only. The import tool does not fetch git remotes itself: " +
-                    "the backend resolves the source through the caller and records the result in the receipt.",
-                    MessageType.Info);
+                targets.Add(ToolTargetInfo.FromFields(fields));
+            }
+
+            if (targets.Count > 0)
+            {
+                EditorGUILayout.Space();
+                EditorGUILayout.LabelField("Targets", EditorStyles.boldLabel);
+                foreach (ToolTargetInfo target in targets)
+                {
+                    string marker = target.Engine == EngineName ? "> " : "  ";
+                    EditorGUILayout.LabelField(
+                        marker + target.Engine + "  (" + target.ArtifactType +
+                        (string.IsNullOrEmpty(target.ArtifactFormat) ? string.Empty : "/" + target.ArtifactFormat) +
+                        ")", EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField("    requirements: " + target.RequirementsSummary());
+
+                    if (target.IsExternal)
+                    {
+                        EditorGUILayout.LabelField(
+                            "    upstream: " + target.ExternalUrl + " @ " + target.ExternalRef,
+                            EditorStyles.wordWrappedLabel);
+                        EditorGUILayout.HelpBox(
+                            "This target stores metadata only: no artifact lives in the registry. The backend " +
+                            "reports it as caller-resolved rather than fetching it, and the receipt records the " +
+                            "url and ref so the source can be audited later.",
+                            MessageType.Info);
+                    }
+                    else if (!string.IsNullOrEmpty(target.ContentRoot))
+                    {
+                        EditorGUILayout.LabelField("    extracts into: " + target.ContentRoot);
+                    }
+                    else if (!string.IsNullOrEmpty(target.TargetPath))
+                    {
+                        EditorGUILayout.LabelField("    lands at: " + target.TargetPath);
+                    }
+
+                    if (target.EditorOnly)
+                    {
+                        EditorGUILayout.LabelField("    editor-only: excluded from player builds");
+                    }
+                }
             }
 
             var dependencyLines = new List<string>();
@@ -260,18 +344,32 @@ namespace DevCat.ToolImport.Editor
 
             foreach (string[] tool in plan.Of("PLANTOOL"))
             {
-                if (tool.Length < 2) continue;
-                string skipped = tool.Length > 9 ? tool[9] : string.Empty;
+                // PLANTOOL: id version engine artifactType artifactFormat size sha256
+                //           contentRoot editorOnly installedBecause skipped
+                if (tool.Length < 3) continue;
+                string skipped = tool.Length > 10 ? tool[10] : string.Empty;
                 if (!string.IsNullOrEmpty(skipped))
                 {
-                    EditorGUILayout.LabelField(tool[0] + ": " + skipped, EditorStyles.wordWrappedMiniLabel);
+                    EditorGUILayout.LabelField(
+                        tool[0] + "/" + tool[2] + ": " + skipped, EditorStyles.wordWrappedMiniLabel);
                     continue;
                 }
 
+                string artifact = tool.Length > 3 ? tool[3] : "?";
+                if (tool.Length > 4 && !string.IsNullOrEmpty(tool[4])) artifact += "/" + tool[4];
                 EditorGUILayout.LabelField(
-                    string.Format("{0} {1} - {2} bytes - needed by {3}",
-                        tool[0], tool[1], tool.Length > 3 ? tool[3] : "?", tool.Length > 8 ? tool[8] : "user"),
+                    string.Format("{0} {1} [{2}] {3} - {4} bytes - needed by {5}",
+                        tool[0], tool[1], tool[2], artifact,
+                        tool.Length > 5 ? tool[5] : "?",
+                        tool.Length > 9 && !string.IsNullOrEmpty(tool[9]) ? tool[9] : "user"),
                     EditorStyles.boldLabel);
+            }
+
+            // What each engine would actually receive. Reported per tool+engine so a
+            // cross-engine install does not blend two engines' destinations.
+            foreach (string[] file in plan.Of("PLANFILE"))
+            {
+                if (file.Length >= 2) EditorGUILayout.LabelField("    " + file[0] + " -> " + file[1]);
             }
         }
 
@@ -363,7 +461,10 @@ namespace DevCat.ToolImport.Editor
                 command.Append(arguments);
                 command.Append(" --registry \"").Append(registryLocator).Append('"');
                 command.Append(" --project \"").Append(projectRoot).Append('"');
-                // Declaring the host lets the backend enforce package floors.
+                // Which engine the backend should plan for. Required: the core knows
+                // no engine, so without this it cannot decide which target applies.
+                command.Append(" --engine \"").Append(EngineName).Append('"');
+                // Declaring the host lets the adapter enforce package floors.
                 command.Append(" --host-unity \"").Append(Application.unityVersion).Append('"');
                 if (dryRun)
                 {
