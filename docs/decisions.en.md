@@ -21,7 +21,7 @@ directory with its own local git history, not inside `DevCatToolRegistry`.
   payload registry.
 - The two have different release rhythms: publishing a tool is rare and deliberate; the
   front end iterates constantly.
-- The boundary is a data contract (`index.utool`, `tool.utool`, JSON Schema), so the
+- The boundary is a data contract (`index.yaml`, `tool.yaml`, JSON Schema), so the
   split costs almost nothing in coupling — either side can be rewritten against the
   same contract.
 
@@ -74,7 +74,7 @@ source files from a remote registry.
 
 ## D-4 — One manifest describes exactly one version
 
-**Decision.** `tool.utool` describes a single published version. Multi-version manifests
+**Decision.** `tool.yaml` describes a single published version. Multi-version manifests
 (`versions[]`) are reserved for a future `formatVersion` and are rejected today.
 
 **Why.** Simplicity is worth more than version history at this size: resolution lands on

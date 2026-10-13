@@ -1,5 +1,5 @@
 /**
- * .utool document loading and shape checking.
+ * .yaml document loading and shape checking.
  *
  * The format is YAML contents behind a proprietary extension, discriminated by
  * `kind` and versioned by `formatVersion`. This module owns those two decisions
@@ -18,7 +18,7 @@ import { DocumentError, EXIT } from './errors.js';
 import { FORMAT_VERSION, KNOWN_KINDS, KIND } from './format.js';
 
 /**
- * Parse .utool text into its YAML value.
+ * Parse .yaml text into its YAML value.
  *
  * @param {string} text file contents
  * @param {string} [source] used in error messages
@@ -37,7 +37,7 @@ export function parseUtool(text, source = '<memory>') {
     throw new DocumentError('E-UTOOL-YAML', `${source}: invalid YAML: ${first.message}`);
   }
 
-  // A .utool file holds exactly one document. `---` separated files are
+  // A .yaml file holds exactly one document. `---` separated files are
   // rejected rather than merged, so a stray separator cannot silently truncate.
   const value = doc.toJS({ maxAliasCount: 100 });
 
@@ -55,7 +55,7 @@ export function parseUtool(text, source = '<memory>') {
 }
 
 /**
- * Load and read a .utool file from disk.
+ * Load and read a .yaml file from disk.
  *
  * @param {string} path
  * @returns {Record<string, unknown>}

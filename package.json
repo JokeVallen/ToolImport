@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Engine-agnostic backend for the DevCatToolRegistry import tool: parses the .utool format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
+  "description": "Engine-agnostic backend for the DevCatToolRegistry import tool: parses the .yaml format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
   "license": "MIT",
   "author": "DevCat",
   "engines": {

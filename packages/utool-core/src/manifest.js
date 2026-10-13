@@ -1,5 +1,5 @@
 /**
- * Typed view over a validated tool.utool document (formatVersion 2).
+ * Typed view over a validated tool.yaml document (formatVersion 2).
  *
  * The class mirrors the format's own split: engine-neutral accessors at the top,
  * and everything engine-specific behind `target(engine)`. Nothing here knows what
@@ -187,7 +187,7 @@ export class ToolTarget {
 
 export class ToolManifest {
   /**
-   * @param {Record<string, any>|ToolManifest} doc a loaded .utool document, or an
+   * @param {Record<string, any>|ToolManifest} doc a loaded .yaml document, or an
    *   existing ToolManifest. Accepting a manifest makes this constructor
    *   idempotent, which matters because callers at different layers each normalise
    *   what they receive.
@@ -318,7 +318,7 @@ export class ToolManifest {
   }
 
   /**
-   * Serializable summary for index.utool. Deliberately carries only engine NAMES:
+   * Serializable summary for index.yaml. Deliberately carries only engine NAMES:
    * per-engine floors and artifacts belong to the manifest, so the index stays a
    * small listing rather than a second copy of the data.
    */
@@ -334,7 +334,7 @@ export class ToolManifest {
       injects: this.injects,
       dependencies: this.dependencies,
       tags: this.tags,
-      manifestPath: manifestPath ?? `payloads/${this.id}/tool.utool`,
+      manifestPath: manifestPath ?? `payloads/${this.id}/tool.yaml`,
     };
   }
 

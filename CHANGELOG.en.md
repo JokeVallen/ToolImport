@@ -21,7 +21,7 @@ area rather than by release date. Nothing here has been published.
 
 ### Added
 
-- `packages/utool-core` — the engine-neutral core: `.utool` document loading, a
+- `packages/utool-core` — the engine-neutral core: `.yaml` document loading, a
   draft-07 JSON Schema subset, registry validation, dependency and capability
   resolution, artifact verification, install planning and execution, and receipts.
 - A **container registry** so the core never learns an engine name. The core registers

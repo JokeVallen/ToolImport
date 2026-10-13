@@ -2,7 +2,7 @@
  * Install receipts, and the version pointer that makes an update reversible.
  *
  * One receipt per installed TOOL, under
- * `<project>/Library/DevCatToolRegistry/receipts/<toolId>.utool`, is what makes
+ * `<project>/Library/DevCatToolRegistry/receipts/<toolId>.yaml`, is what makes
  * uninstall exact: a file is removed only when no remaining receipt still claims
  * it, so a shared file survives until the last dependent leaves.
  *
@@ -115,7 +115,7 @@ export class ReceiptStore {
     if (!existsSync(this.dir)) return [];
     const entries = await readdir(this.dir);
     const receipts = [];
-    for (const name of entries.filter((entry) => entry.endsWith('.utool')).sort()) {
+    for (const name of entries.filter((entry) => entry.endsWith('.yaml')).sort()) {
       const file = path.join(this.dir, name);
       receipts.push(this.#parse(file, name));
     }

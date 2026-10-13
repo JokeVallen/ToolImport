@@ -19,7 +19,7 @@
 
 ### 新增
 
-- `packages/utool-core`——引擎中立的核心：`.utool` 文档加载、draft-07 JSON Schema 子集、注册库
+- `packages/utool-core`——引擎中立的核心：`.yaml` 文档加载、draft-07 JSON Schema 子集、注册库
   校验、依赖与能力求解、制品校验、安装的计划与执行、回执。
 - **容器注册表**，使核心永远不必知道任何引擎名。核心注册 `zip`、`tgz`、`tar.gz`、`tar.zst` 与
   单文件载荷的处理器；引擎适配器注册它自己拥有的格式。**同一格式被注册两次是错误，而不是后注册者

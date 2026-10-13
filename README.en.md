@@ -13,7 +13,7 @@ Node/npm backend plus, per engine, an adapter and a thin editor front end:
 
 ```text
 packages/
-└─ utool-core/            the backend core: .utool parsing, registry validation,
+└─ utool-core/            the backend core: .yaml parsing, registry validation,
                           dependency and capability resolution, artifact
                           verification, install, receipts. NO engine dependency.
 
@@ -42,7 +42,7 @@ that says which engines a build can serve.
 | Reason | Consequence |
 | --- | --- |
 | **Compile errors stop Unity, not Node** | If the project does not compile, no editor assembly loads and the window cannot open — but `utool install` still works from a shell. This is the main practical benefit. |
-| **Cross-engine** | The backend only knows `.utool` documents and archives. Another engine needs a new front end, not a new backend. |
+| **Cross-engine** | The backend only knows `.yaml` documents and archives. Another engine needs a new front end, not a new backend. |
 | **Testable** | Resolution, verification and receipts are unit-tested with `node --test`, no editor required. |
 | **Reusable in CI** | The same CLI validates a registry in a pipeline. |
 
@@ -122,7 +122,7 @@ with no Unity installed. That harness is a check, not a shipped component.
 ## Relationship to the registry repository
 
 ```text
-../DevCatToolRegistry          the data: .utool documents and sealed artifacts
+../DevCatToolRegistry          the data: .yaml documents and sealed artifacts
 this directory                 the code: parsing, verification, installation
 ```
 

@@ -13,7 +13,7 @@ namespace DevCat.ToolImport.Editor
     /// <remarks>
     /// This class is the entire reason the tool is split into a backend and an
     /// editor front end. Every decision that could be got wrong -- parsing
-    /// .utool, resolving dependencies, verifying a sha256, deciding install
+    /// .yaml, resolving dependencies, verifying a sha256, deciding install
     /// order -- happens in Node, outside Unity. Consequences that matter:
     ///
     ///   * if the project has compile errors, no editor assembly loads and this
@@ -22,7 +22,7 @@ namespace DevCat.ToolImport.Editor
     ///     is Unity-specific;
     ///   * the rules are testable without an editor (see utool-core/test).
     ///
-    /// Nothing in this class inspects .utool files itself. If a rule needs
+    /// Nothing in this class inspects .yaml files itself. If a rule needs
     /// changing, it changes in the backend.
     /// </remarks>
     internal static class CliRunner

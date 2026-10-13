@@ -88,7 +88,7 @@ export function toolTargets(targets) {
 }
 
 /**
- * @param {Record<string, any>} manifest a raw .utool document
+ * @param {Record<string, any>} manifest a raw .yaml document
  * @param {import('../../packages/utool-core/src/manifest.js').ToolManifest} [model]
  */
 export function toolDetail(manifest, model) {

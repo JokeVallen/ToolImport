@@ -32,7 +32,7 @@ code:
 ## Pipeline
 
 ```text
-    RegistrySource        read index.utool, fetch tool.utool by manifestPath
+    RegistrySource        read index.yaml, fetch tool.yaml by manifestPath
           |
           v
     parseUtool + checkHeader    YAML -> mapping; verify kind and formatVersion
@@ -145,7 +145,7 @@ to prevent.
 | `lib/records.js` | line-record output for embedders |
 | `lib/output.js` | tables, JSON, warnings |
 | `lib/host.js` | read the editor version from `ProjectSettings/ProjectVersion.txt` |
-| `lib/write-index.js` | regenerate `index.utool` |
+| `lib/write-index.js` | regenerate `index.yaml` |
 
 Commands: `list`, `show`, `plan`, `verify`, `install`, `uninstall`, `rollback`,
 `status`, `validate`.
@@ -159,7 +159,7 @@ skipped, so the requested install still completes.
 
 ## `frontends/unity-editor` — the Unity front end
 
-The C# side contains **no format logic**: it does not parse `.utool`, does not resolve
+The C# side contains **no format logic**: it does not parse `.yaml`, does not resolve
 dependencies, does not hash anything. It runs the CLI and renders the result.
 
 | Type | Responsibility |

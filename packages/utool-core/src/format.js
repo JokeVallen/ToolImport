@@ -1,5 +1,5 @@
 /**
- * Closed vocabulary of the .utool format, formatVersion 2.
+ * Closed vocabulary of the .yaml format, formatVersion 2.
  *
  * The manifest is split in two halves and this file mirrors that split:
  *
@@ -26,12 +26,12 @@ export const KNOWN_KINDS = Object.freeze([KIND.TOOL, KIND.INDEX, KIND.RECEIPT]);
 
 /** Fixed file names. A payload is identified by its manifest file name. */
 export const FILE_NAMES = Object.freeze({
-  MANIFEST: 'tool.utool',
+  MANIFEST: 'tool.yaml',
   /** Accepted alias: the contents are YAML, so a tool.yaml manifest is not a lie. */
   MANIFEST_ALIAS: 'tool.yaml',
-  INDEX: 'index.utool',
+  INDEX: 'index.yaml',
   INDEX_ALIAS: 'index.yaml',
-  receiptFor: (toolId) => `${toolId}.utool`,
+  receiptFor: (toolId) => `${toolId}.yaml`,
 });
 
 /** Entries a payload directory is allowed to contain, and nothing else. */

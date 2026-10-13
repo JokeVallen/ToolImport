@@ -67,7 +67,7 @@ test('a Unity payload cannot be verified without the Unity adapter', () => {
   );
   const bytes = readFileSync(artifactPath);
   const manifestDoc = readFileSync(
-    path.join(REGISTRY, 'payloads/editor-tool-selection-history/tool.utool'),
+    path.join(REGISTRY, 'payloads/editor-tool-selection-history/tool.yaml'),
     'utf8',
   );
 

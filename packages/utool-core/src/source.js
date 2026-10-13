@@ -1,5 +1,5 @@
 /**
- * Registry sources: where .utool documents and artifacts come from.
+ * Registry sources: where .yaml documents and artifacts come from.
  *
  * The core never assumes the network. A source is anything that can hand back
  * the index, a manifest at a known path, and artifact bytes. That is what makes
@@ -22,7 +22,7 @@ import { loadUtool, checkHeader, parseUtool } from './loader.js';
  * test in this package.
  */
 export class LocalRegistrySource {
-  /** @param {string} root absolute or relative directory holding index.utool */
+  /** @param {string} root absolute or relative directory holding index.yaml */
   constructor(root) {
     this.root = path.resolve(root);
     this.kind = 'local';

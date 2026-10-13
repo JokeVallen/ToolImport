@@ -27,7 +27,7 @@ frontends/<engine>-editor  各引擎的可视化前端（当前只有 Unity）
 ## 流水线
 
 ```text
-    RegistrySource        读 index.utool，按 manifestPath 取回 tool.utool
+    RegistrySource        读 index.yaml，按 manifestPath 取回 tool.yaml
           |
           v
     parseUtool + checkHeader    YAML -> 映射；校验 kind 与 formatVersion
@@ -132,7 +132,7 @@ frontends/<engine>-editor  各引擎的可视化前端（当前只有 Unity）
 | `lib/records.js` | 面向嵌入方的行记录输出 |
 | `lib/output.js` | 表格、JSON、警告 |
 | `lib/host.js` | 从 `ProjectSettings/ProjectVersion.txt` 读编辑器版本 |
-| `lib/write-index.js` | 重新生成 `index.utool` |
+| `lib/write-index.js` | 重新生成 `index.yaml` |
 
 命令：`list`、`show`、`plan`、`verify`、`install`、`uninstall`、`rollback`、`status`、`validate`。
 
@@ -143,7 +143,7 @@ frontends/<engine>-editor  各引擎的可视化前端（当前只有 Unity）
 
 ## `frontends/unity-editor` —— Unity 前端
 
-C# 侧**不含任何格式逻辑**：不解析 `.utool`、不做依赖求解、不算哈希。它只调 CLI 并渲染结果。
+C# 侧**不含任何格式逻辑**：不解析 `.yaml`、不做依赖求解、不算哈希。它只调 CLI 并渲染结果。
 
 | 类型 | 职责 |
 | --- | --- |
