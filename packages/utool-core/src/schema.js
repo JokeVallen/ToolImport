@@ -6,17 +6,23 @@
  * Python CI gate and this parser agree on what "valid" means.
  *
  * Supported: $ref (local), type, enum, const, properties,
- * additionalProperties, required, items, minItems, maxItems, uniqueItems,
+ * additionalProperties, propertyNames, required, items, minItems, maxItems, uniqueItems,
  * minLength, maxLength, pattern, format (date, uri), minimum, maximum,
  * allOf, anyOf, oneOf, not, if/then/else, definitions, $defs.
  */
 
 import { readFileSync } from 'node:fs';
 
+// `fromFile` is the only platform-dependent part of this module, and it is kept that way
+// on purpose: the validator itself is pure, so the same code validates a manifest in Node
+// and in a browser. That is what lets the standalone HTML checker use these rules instead
+// of reimplementing them. The import above is tolerated in a browser via the shim the
+// HTML page installs; see DevCatToolRegistry/tools/validate.html.
+
 const KNOWN_KEYWORDS = new Set([
   '$schema', '$id', '$comment', 'title', 'description', 'default', 'examples',
   'definitions', '$defs', 'type', 'enum', 'const', 'properties',
-  'additionalProperties', 'required', 'items', 'minItems', 'maxItems',
+  'additionalProperties', 'propertyNames', 'required', 'items', 'minItems', 'maxItems',
   'uniqueItems', 'minLength', 'maxLength', 'pattern', 'format', 'minimum',
   'maximum', 'allOf', 'anyOf', 'oneOf', 'not', 'if', 'then', 'else', '$ref',
 ]);
@@ -87,7 +93,7 @@ export class SchemaValidator {
         }
       } else if (key === 'allOf' || key === 'anyOf' || key === 'oneOf') {
         value.forEach((sub, i) => this.#assertSupported(sub, `${path}/${key}/${i}`));
-      } else if (['items', 'not', 'if', 'then', 'else', 'additionalProperties'].includes(key)) {
+      } else if (['items', 'not', 'if', 'then', 'else', 'additionalProperties', 'propertyNames'].includes(key)) {
         if (value !== null && typeof value === 'object') {
           this.#assertSupported(value, `${path}/${key}`);
         }
@@ -185,6 +191,15 @@ export class SchemaValidator {
       for (const key of schema.required ?? []) {
         if (!Object.prototype.hasOwnProperty.call(value, key)) {
           out.push(`${path}: missing required property '${key}'`);
+        }
+      }
+      // propertyNames constrains the KEYS rather than the values, which is how the schema
+      // says "every key here is an engine name" without enumerating engines.
+      if (schema.propertyNames !== undefined) {
+        for (const key of Object.keys(value)) {
+          for (const problem of this.errors(key, schema.propertyNames, `${path} key '${key}'`)) {
+            out.push(problem);
+          }
         }
       }
       const props = schema.properties ?? {};

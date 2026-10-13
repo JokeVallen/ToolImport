@@ -51,6 +51,7 @@ import { satisfies } from './semver.js';
  * @param {string} root
  * @param {{
  *   containers: import('./containers.js').ContainerRegistry,
+ *   schema?: import('./schema.js').SchemaValidator,
  *   hash?: boolean,
  *   quiet?: boolean,
  *   onCheck?: (message: string) => void,
@@ -58,7 +59,7 @@ import { satisfies } from './semver.js';
  * @returns {Promise<ValidationResult>}
  */
 export async function validateRegistry(root, options) {
-  const { containers, hash = true, onCheck } = options;
+  const { containers, schema = null, hash = true, onCheck } = options;
   if (!containers) {
     throw new TypeError(
       'validateRegistry requires a container registry; build one with createCoreContainerRegistry() ' +
@@ -105,6 +106,20 @@ export async function validateRegistry(root, options) {
     } catch (cause) {
       bag.error(cause.code ?? 'E-MANIFEST', `${id}/${FILE_NAMES.MANIFEST}: ${cause.message}`);
       continue;
+    }
+
+    // Schema first. The checks below are all relationship rules that a JSON Schema cannot
+    // express - does the artifact name match the id and version, is `latest` published,
+    // does a dependency resolve - so they assume the document already has the right shape.
+    //
+    // This ran nowhere until the standalone HTML checker exposed it: SchemaValidator was
+    // exported and never called, so the shipped schema was decoration, and a keyword it
+    // does not implement (minProperties) sat in it unnoticed. Checking here is what makes
+    // schema/tool.schema.json the contract rather than a comment.
+    if (schema) {
+      for (const problem of schema.errors(doc)) {
+        bag.error('E-SCHEMA', `${id}/${FILE_NAMES.MANIFEST}: ${problem}`);
+      }
     }
 
     const manifest = toManifest(doc);
