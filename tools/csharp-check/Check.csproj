@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Type-check harness for the Unity editor front end.
+
+    Compiles the REAL sources from frontends/unity-editor/Editor against minimal
+    Unity type stubs (UnityStubs.cs) that sit beside this file, so a C# error is
+    caught in seconds on a machine with no Unity installed instead of after an
+    editor import.
+
+    Deliberately NOT part of the shipped tool, and deliberately outside the npm
+    workspaces: it is a check, not a package. Nothing here is deployed.
+
+    Run it with:  node tools/csharp-check.mjs
+  -->
+  <PropertyGroup>
+    <!-- An executable, not a library: the point is to RUN BackendRecords against
+         real CLI output. A compile-only harness cannot catch a field-index bug.
+         Reading fields[0] instead of fields[4] type-checks perfectly and is still
+         wrong, which is exactly how a verified plan came to report itself as
+         unverified. net8.0 rather than netstandard2.1 because a library cannot run. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AssemblyName>csharp-check</AssemblyName>
+    <RootNamespace>CsharpCheck</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Sources are copied in by the runner so the stub and the real code compile
+         together without the front end becoming part of this project. -->
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <!-- The front-end types are internal to their assembly; the behaviour checks
+         compile into THIS assembly (sources are copied in), so they can see them. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+  </PropertyGroup>
+
+</Project>

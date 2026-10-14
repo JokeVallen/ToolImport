@@ -32,6 +32,18 @@ const REQUIRED = [
   'providers/engine-unity/src/index.js',
   'providers/engine-godot/src/index.js',
   'package.json',
+  // The Unity front end and its check harness. Both were hit by the same class of
+  // bug: an unanchored ignore rule (there `[Bb]in/`, here `*.csproj`) silently kept
+  // a needed file out of every commit. The harness is the worse case of the two,
+  // because `npm run check:csharp` then failed on a clone AND blamed the front-end
+  // sources, sending anyone who hit it to look in the wrong place.
+  'frontends/unity-editor/Editor/ImportToolWindow.cs',
+  'frontends/unity-editor/Editor/BackendRecords.cs',
+  'frontends/unity-editor/Editor/CliRunner.cs',
+  'tools/csharp-check.mjs',
+  'tools/csharp-check/Check.csproj',
+  'tools/csharp-check/UnityStubs.cs',
+  'tools/csharp-check/BehaviourTests.cs',
 ];
 
 let tracked;

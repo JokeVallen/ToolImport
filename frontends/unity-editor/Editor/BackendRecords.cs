@@ -25,13 +25,30 @@ namespace DevCat.ToolImport.Editor
         public readonly List<KeyValuePair<string, string[]>> All = new List<KeyValuePair<string, string[]>>();
 
         /// <summary>Value of a two-field record such as RESULT key value.</summary>
+        /// <remarks>
+        /// Looks at RESULT first, then PLAN. Both carry their payload as a flat
+        /// key/value sequence, but PLAN packs several pairs into ONE record
+        /// (PLAN tools 2 bytes 2968 ok true), so the key is not always the first
+        /// field. Searching for the key and reading the next field handles both
+        /// shapes; matching on field 0 alone silently missed every PLAN, which
+        /// made a verified plan report itself as unverified.
+        /// </remarks>
         public string Result(string key, string fallback = "")
         {
             foreach (var entry in All)
             {
-                if (entry.Key == "RESULT" && entry.Value.Length >= 2 && entry.Value[0] == key)
+                if (entry.Key != "RESULT" && entry.Key != "PLAN")
                 {
-                    return entry.Value[1];
+                    continue;
+                }
+
+                string[] fields = entry.Value;
+                for (int i = 0; i + 1 < fields.Length; i += 2)
+                {
+                    if (fields[i] == key)
+                    {
+                        return fields[i + 1];
+                    }
                 }
             }
             return fallback;

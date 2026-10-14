@@ -43,11 +43,19 @@ yarn-error.log*
 [Bb]uilds/
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
-*.csproj
-*.sln
 *.pdb
 *.mdb
 *.dll
+
+# *.csproj is NOT ignored wholesale, for the same reason [Bb]in/ is not: the
+# type-check harness IS a .csproj, and a bare rule here silently excluded it from
+# every commit. A fresh clone then had only UnityStubs.cs, so `npm run check:csharp`
+# died with MSBUILD error MSB1003 ("no project or solution file") -- and the runner
+# printed "the errors above are in the real front-end sources", which pointed at
+# innocent code. Generated projects are ignored by location instead.
+frontends/**/*.csproj
+**/Library/*.csproj
+*.sln
 
 # bin/ is NOT ignored wholesale: this repository has a source directory called
 # apps/cli/bin/, and an unanchored [Bb]in/ rule silently excluded the CLI's entry

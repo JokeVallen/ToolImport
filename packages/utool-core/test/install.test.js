@@ -27,7 +27,7 @@ import {
   resolveSelection,
   toManifest,
 } from '../src/index.js';
-import { REGISTRY, makeContainers } from './helpers.js';
+import { REGISTRY, registryTest, makeContainers } from './helpers.js';
 
 /** A source that reads artifacts from disk, like LocalRegistrySource does. */
 function localSource(root) {
@@ -51,7 +51,7 @@ async function buildPlan(registryRoot, ids, options = {}) {
   return { source, plan };
 }
 
-test('installing a cross-engine tool writes each engine to its own location', async (t) => {
+test('installing a cross-engine tool writes each engine to its own location', registryTest(), async (t) => {
   const project = await mkdtemp(path.join(os.tmpdir(), 'utool-install-'));
   t.after(() => rm(project, { recursive: true, force: true }));
 
@@ -96,7 +96,7 @@ test('installing a cross-engine tool writes each engine to its own location', as
   assert.equal(outcome.installed.length, 2, 'one install per engine');
 });
 
-test('a receipt lets the payload be removed with no residue', async (t) => {
+test('a receipt lets the payload be removed with no residue', registryTest(), async (t) => {
   const project = await mkdtemp(path.join(os.tmpdir(), 'utool-uninstall-'));
   t.after(() => rm(project, { recursive: true, force: true }));
 
@@ -115,7 +115,7 @@ test('a receipt lets the payload be removed with no residue', async (t) => {
   assert.deepEqual(plan2.keep, []);
 });
 
-test('a tampered artifact aborts the plan before anything is written', async (t) => {
+test('a tampered artifact aborts the plan before anything is written', registryTest(), async (t) => {
   const project = await mkdtemp(path.join(os.tmpdir(), 'utool-tamper-'));
   t.after(() => rm(project, { recursive: true, force: true }));
 
@@ -139,7 +139,7 @@ test('a tampered artifact aborts the plan before anything is written', async (t)
   assert.equal(existsSync(path.join(project, 'Assets')), false);
 });
 
-test('an external target is reported, never silently installed', async (t) => {
+test('an external target is reported, never silently installed', registryTest(), async (t) => {
   const containers = makeContainers();
   const { source, plan } = await buildPlan(REGISTRY, ['libs-gltf-importer'], { engine: 'unity' });
   const report = await planInstallation(plan, source, containers);
@@ -149,7 +149,7 @@ test('an external target is reported, never silently installed', async (t) => {
   assert.match(report.tools[0].skipped, /resolved by the caller/);
 });
 
-test('the engine floor blocks the install and names the requirement', async (t) => {
+test('the engine floor blocks the install and names the requirement', registryTest(), async (t) => {
   const containers = makeContainers();
   const { plan } = await buildPlan(REGISTRY, ['editor-tool-selection-history'], {
     engine: 'unity',
@@ -200,7 +200,7 @@ function syntheticTool(id, extras = {}) {
   });
 }
 
-test('a capability conflict is reported', async (t) => {
+test('a capability conflict is reported', registryTest(), async (t) => {
   // The shipped registry has no conflict, so it is exercised through the resolver
   // directly with a synthetic pair of manifests.
   const conflict = [
@@ -215,7 +215,7 @@ test('a capability conflict is reported', async (t) => {
   assert.deepEqual(problem.providers, ['one', 'two']);
 });
 
-test('an unsatisfiable inject is reported', async (t) => {
+test('an unsatisfiable inject is reported', registryTest(), async (t) => {
   const lonely = syntheticTool('needs-help', { injects: ['nobody.provides.this'] });
 
   const plan = await resolveSelection(['needs-help'], async () => lonely, { engine: 'unity' });

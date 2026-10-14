@@ -29,7 +29,7 @@ import {
   compareUnityVersions,
 } from '../src/index.js';
 import { unityAdapter, UNITYPACKAGE_FORMAT } from '../../../providers/engine-unity/src/index.js';
-import { REGISTRY, makeContainers, makeCoreOnlyContainers } from './helpers.js';
+import { REGISTRY, registryTest, makeContainers, makeCoreOnlyContainers } from './helpers.js';
 
 test('the core declares no engine-specific container format', () => {
   const containers = makeCoreOnlyContainers();
@@ -62,7 +62,7 @@ test('registering two handlers for one format is rejected, not silently won', ()
   );
 });
 
-test('a Unity payload cannot be verified without the Unity adapter', () => {
+test('a Unity payload cannot be verified without the Unity adapter', registryTest(), () => {
   const artifactPath = path.join(
     REGISTRY,
     'payloads/editor-tool-selection-history/artifacts/editor-tool-selection-history-1.0.0.unitypackage',

@@ -339,7 +339,8 @@ namespace DevCat.ToolImport.Editor
             EditorGUILayout.HelpBox(
                 ok
                     ? "Verification passed: every artifact matches its declared size and sha256."
-                    : "The plan could not be verified.",
+                    : "The plan was NOT verified: the backend reported ok=false. Do not install until " +
+                      "this is understood.",
                 ok ? MessageType.Info : MessageType.Error);
 
             foreach (string[] tool in plan.Of("PLANTOOL"))
