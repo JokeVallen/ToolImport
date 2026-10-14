@@ -84,11 +84,33 @@ namespace DevCat.ToolImport.Editor
         /// <summary>Free-text filter over the tool list.</summary>
         private string searchText = string.Empty;
 
-        /// <summary>When set, only tools this project has installed are listed.</summary>
-        private bool installedOnly;
+        /// <summary>Which subset of the registry the list shows.</summary>
+        private ToolFilter filter = ToolFilter.All;
+
+        /// <summary>
+        /// Named subsets, chosen instead of a set of independent toggles.
+        /// </summary>
+        /// <remarks>
+        /// Independent toggles ("installed" and "not installed" both on) have states that
+        /// mean nothing, and the user has to work out which combination they are in. One
+        /// choice from a list cannot be contradictory.
+        /// </remarks>
+        private enum ToolFilter
+        {
+            All,
+            Installed,
+            NotInstalled,
+            ThisEngine,
+        }
 
         /// <summary>Search box contents are reset when the user clears it.</summary>
         private const string SearchControlName = "DevCatToolSearch";
+
+        /// <summary>Cached filtered list, rebuilt only when its inputs change.</summary>
+        private List<AvailableTool> filteredTools;
+        private string filterKey;
+        private ToolFilter filterInstalledOnly;
+        private int filterSourceCount = -1;
 
         /// <summary>Engine to install into; chosen in the toolbar.</summary>
         private string EngineName = "unity";
@@ -106,28 +128,35 @@ namespace DevCat.ToolImport.Editor
         {
             registryLocator = ResolveRegistryLocator();
 
-            // Know what is installed before drawing, so Uninstall is disabled for a
-            // tool that is not there. This is a local read of the receipts, not a
-            // registry request, so it is cheap on every open.
-            RefreshInstalled();
-
-            // Show the cached listing immediately, and refresh in the background when
-            // there is nothing cached yet. On a reopen this is instant and silent; on a
-            // first open it fills itself instead of showing an empty pane that says
-            // "press Refresh".
+            // Show the cached listing immediately, and load it when there is nothing
+            // cached yet. On a reopen this is instant and silent; on a first open it
+            // fills itself instead of showing an empty pane that says "press Refresh".
+            //
+            // The installed scan and the listing CANNOT be started as two independent
+            // calls: Run holds ONE busy flag, so the second call returns immediately and
+            // silently, and the window sat on "Loading the registry..." until the user
+            // pressed Refresh. Sequencing them is the fix -- the scan is local and fast,
+            // so doing it first costs nothing.
             if (cachedTools != null && cachedTools.Count > 0)
             {
                 statusMessage = string.Format("Registry: {0} - {1} tool(s).", registryLocator, cachedTools.Count);
+                RefreshInstalled();
             }
             else
             {
                 statusMessage = "Loading the registry...";
-                Refresh();
+                RefreshInstalled(Refresh);
             }
         }
 
-        /// <summary>Re-read which tools this project has installed.</summary>
-        private void RefreshInstalled()
+        /// <summary>
+        /// Re-read which tools this project has installed.
+        /// </summary>
+        /// <param name="then">
+        /// Run after the scan completes. Used to sequence a follow-up command, because
+        /// Run serialises on a single busy flag.
+        /// </param>
+        private void RefreshInstalled(Action then = null)
         {
             Run("status", records =>
             {
@@ -136,11 +165,23 @@ namespace DevCat.ToolImport.Editor
                 {
                     if (fields.Length > 0) installedIds.Add(fields[0]);
                 }
+                // The installed set feeds the filter, so a changed set invalidates it.
+                // Without this an install would not appear under "Installed" until the
+                // search text changed.
+                filteredTools = null;
+                if (then != null) then();
             });
         }
 
         private void OnGUI()
         {
+            // Recompute the visible set ONCE per frame. It used to be rebuilt by the
+            // toolbar (for the count) and again by the list, so every repaint did the
+            // whole filter twice and allocated two lists -- and IMGUI repaints on every
+            // mouse move. OnGUI is also called several times per frame for layout and
+            // repaint events, so this is multiplied again.
+            RebuildVisibleTools();
+
             DrawToolbar();
 
             if (tools.Count == 0)
@@ -157,17 +198,53 @@ namespace DevCat.ToolImport.Editor
             EditorGUILayout.LabelField(statusMessage, EditorStyles.miniLabel);
         }
 
-        /// <summary>Tools passing the current search text and installed-only filter.</summary>
-        private List<AvailableTool> VisibleTools()
+        /// <summary>
+        /// Recompute the filtered list, but only when its inputs changed.
+        /// </summary>
+        /// <remarks>
+        /// The inputs are the search text, the installed flag and the tool list itself,
+        /// so typing is the only thing that triggers a rebuild. This is also why there is
+        /// no debounce: filtering is a substring scan over a handful of small strings
+        /// held in memory, which costs microseconds. Debouncing would add a timer, a
+        /// repaint dependency and a frame of lag to hide a cost that is not there. If a
+        /// registry ever held thousands of tools this becomes worth revisiting -- the
+        /// trigger would be a measured cost, not the fact that the user is typing.
+        /// </remarks>
+        private void RebuildVisibleTools()
         {
+            if (filteredTools != null
+                && filterKey == searchText
+                && filterInstalledOnly == filter
+                && filterSourceCount == tools.Count)
+            {
+                return;
+            }
+
+            filterKey = searchText;
+            filterInstalledOnly = filter;
+            filterSourceCount = tools.Count;
+
             var visible = new List<AvailableTool>();
             foreach (AvailableTool tool in tools)
             {
-                if (installedOnly && !installedIds.Contains(tool.Id)) continue;
+                if (filter == ToolFilter.Installed && !installedIds.Contains(tool.Id)) continue;
+                if (filter == ToolFilter.NotInstalled && installedIds.Contains(tool.Id)) continue;
+                // "Usable here" means this engine has a target. It deliberately says
+                // nothing about whether the artifact can be INSTALLED -- that needs the
+                // TARGET record's artifact type, which only `show` returns, and fetching
+                // it for every row would cost one backend call per tool.
+                if (filter == ToolFilter.ThisEngine && !tool.Supports(EngineName)) continue;
                 if (!Matches(tool, searchText)) continue;
                 visible.Add(tool);
             }
-            return visible;
+            filteredTools = visible;
+        }
+
+        /// <summary>Tools passing the current search text and filter.</summary>
+        private List<AvailableTool> VisibleTools()
+        {
+            if (filteredTools == null) RebuildVisibleTools();
+            return filteredTools;
         }
 
         /// <summary>
@@ -274,8 +351,21 @@ namespace DevCat.ToolImport.Editor
                 GUI.FocusControl(null);
             }
 
-            installedOnly = GUILayout.Toggle(
-                installedOnly, "Installed", EditorStyles.toolbarButton, GUILayout.Width(68f));
+            // Filter as one choice from a list. The previous boolean toggle could express
+            // only "installed", so "show me what this engine can actually use" and "show
+            // me what is NOT installed" had no expression at all.
+            GUILayout.Label("Show:", EditorStyles.miniLabel, GUILayout.Width(36f));
+            string[] filterLabels = { "All", "Installed", "Not installed", "This engine" };
+            ToolFilter[] filterValues =
+            {
+                ToolFilter.All, ToolFilter.Installed, ToolFilter.NotInstalled, ToolFilter.ThisEngine,
+            };
+            int current = Array.IndexOf(filterValues, filter);
+            int chosen = EditorGUILayout.Popup(current, filterLabels, EditorStyles.toolbarPopup, GUILayout.Width(110f));
+            if (chosen >= 0 && chosen < filterValues.Length && chosen != current)
+            {
+                filter = filterValues[chosen];
+            }
 
             int shown = VisibleTools().Count;
             GUILayout.Label(
@@ -349,9 +439,16 @@ namespace DevCat.ToolImport.Editor
             // A row that cannot be installed is still SELECTABLE, so its detail pane can
             // explain why. Disabling the row would hide the explanation behind a control
             // the user cannot operate.
-            if (GUILayout.Toggle(selected, label, "Button") != selected)
+            //
+            // While a command is in flight the row IS disabled, because clicking it would
+            // be silently swallowed by Run's busy guard -- a click that does nothing is
+            // worse than a click that is visibly unavailable.
+            using (new EditorGUI.DisabledScope(busy))
             {
-                Select(tool.Id);
+                if (GUILayout.Toggle(selected, label, "Button") != selected)
+                {
+                    Select(tool.Id);
+                }
             }
         }
 

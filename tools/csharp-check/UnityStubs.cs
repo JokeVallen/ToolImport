@@ -81,6 +81,7 @@ namespace UnityEngine
         public static void EndScrollView() { }
         public static void FlexibleSpace() { }
         public static string TextField(string text, GUIStyle style, params GUILayoutOption[] options) => text;
+        public static int Popup(int selected, string[] options, GUIStyle style, params GUILayoutOption[] o) => selected;
     }
 
     /// <summary>Stand-in for the editor's immediate-mode event stream.</summary>
@@ -114,6 +115,7 @@ namespace UnityEngine
         public static GUIStyle toolbarButton = new GUIStyle();
         public static GUIStyle toolbarTextField = new GUIStyle();
         public static GUIStyle toolbarSearchField = new GUIStyle();
+        public static GUIStyle toolbarPopup = new GUIStyle();
     }
 }
 
@@ -137,6 +139,7 @@ namespace UnityEditor
         public static void LabelField(string label, params GUILayoutOption[] options) { }
         public static void LabelField(string label, GUIStyle style, params GUILayoutOption[] options) { }
         public static string TextField(string text, GUIStyle style, params GUILayoutOption[] options) => text;
+        public static int Popup(int selected, string[] options, GUIStyle style, params GUILayoutOption[] options2) => selected;
         public static void Space() { }
         public static void BeginHorizontal(params GUILayoutOption[] options) { }
         public static void BeginHorizontal(GUIStyle style, params GUILayoutOption[] options) { }
