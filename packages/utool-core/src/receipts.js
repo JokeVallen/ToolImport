@@ -203,11 +203,15 @@ export class ReceiptStore {
     /**
      * Files whose bytes differ from what was installed.
      *
-     * These are the interesting ones. A file we installed and the user then edited is
-     * no longer ours to remove silently: deleting it destroys their work, and keeping
-     * it silently leaves an orphan behind. Neither can be decided by the tool, so it
-     * reports the drift and lets a human choose. This is what turns "no pollution"
-     * from a claim into something checkable.
+     * These are still deleted, but they are listed separately first, because the ownership rule is
+     * about the DIRECTORY rather than about anybody's intent: a tool owns everything it wrote under
+     * the paths it installed into, and uninstalling removes it. What a user changed inside a tool's
+     * own directory is theirs to have changed, and the fix for it - reinstalling - is a path we
+     * support, whereas guessing whether a modified file "was really theirs" is not decidable from
+     * the data.
+     *
+     * Listing them is not a softening of that rule. It is the one confirmation that stops a silent
+     * destructive action from being a surprise, and it costs nothing.
      * @type {{file: string, expected: string|null, actual: string}[]}
      */
     const modified = [];
@@ -243,10 +247,9 @@ export class ReceiptStore {
           // uninstall was partial, and the count should not be quietly short.
           alreadyGone.push(normalized);
         } else if (expected !== null && expected !== onDisk) {
-          // Ours when installed, theirs since. Not ours to delete silently, and not
-          // something to leave behind silently either, so it is reported for a human.
+          // Edited since install. Still deleted, because the tool owns this directory - but
+          // recorded so the caller can show what is about to go before it goes.
           modified.push({ file: normalized, expected, actual: onDisk });
-          continue;
         }
 
         if (!toDelete.includes(normalized)) toDelete.push(normalized);

@@ -150,7 +150,10 @@ test('a file the user has edited is reported, not deleted', async (t) => {
   assert.equal(after.modified[0].file, 'Assets/Lib/Mine.cs');
   assert.equal(after.modified[0].expected, expected);
   assert.notEqual(after.modified[0].actual, expected);
-  assert.deepEqual(after.delete, ['Assets/Lib/Untouched.cs'], 'the edited file must not be scheduled for deletion');
+  // Ownership is by directory, not by intent: an edited file is still deleted, and is reported so
+  // the caller can show it before it goes. Reinstalling is the supported way back.
+  assert.deepEqual(after.delete, ['Assets/Lib/Mine.cs', 'Assets/Lib/Untouched.cs'],
+    'an edited file inside the tool\'s directory is still removed');
 });
 
 test('a file already removed from disk is reported separately', async (t) => {
