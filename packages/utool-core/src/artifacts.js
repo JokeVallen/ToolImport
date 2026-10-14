@@ -54,8 +54,18 @@ export async function hashFile(filePath) {
   }
 }
 
-function startsWith(buffer, magic) {
-  return buffer.length >= magic.length && buffer.subarray(0, magic.length).equals(magic);
+/**
+ * Does `bytes` begin with `magic`?
+ *
+ * Compares numerically rather than via Buffer.equals, because ARCHIVE_MAGIC holds plain arrays so
+ * the core stays usable in a browser. `bytes` is still a Buffer in Node.
+ */
+function startsWith(bytes, magic) {
+  if (bytes.length < magic.length) return false;
+  for (let i = 0; i < magic.length; i += 1) {
+    if (bytes[i] !== magic[i]) return false;
+  }
+  return true;
 }
 
 /**

@@ -77,11 +77,20 @@ export const KNOWN_ARTIFACT_TYPES = Object.freeze(Object.values(ARTIFACT_TYPE));
  */
 export const CORE_ARCHIVE_FORMATS = Object.freeze(['zip', 'tgz', 'tar.gz', 'tar.zst']);
 
+/**
+ * Leading bytes that identify each core archive format.
+ *
+ * Plain arrays of numbers rather than Buffers, because this module is embedded verbatim into the
+ * standalone browser validator in DevCatToolRegistry, where `Buffer` does not exist. A top-level
+ * `Buffer.from(...)` there throws on load, which kills the entire page script before a single event
+ * handler is attached - the file picker and the drop zone both go dead, with nothing on screen to
+ * say why. Keeping the core free of Node-only globals is what stops that class of failure.
+ */
 export const ARCHIVE_MAGIC = Object.freeze({
-  'zip': Buffer.from([0x50, 0x4b, 0x03, 0x04]),
-  'tgz': Buffer.from([0x1f, 0x8b]),
-  'tar.gz': Buffer.from([0x1f, 0x8b]),
-  'tar.zst': Buffer.from([0x28, 0xb5, 0x2f, 0xfd]),
+  'zip': Object.freeze([0x50, 0x4b, 0x03, 0x04]),
+  'tgz': Object.freeze([0x1f, 0x8b]),
+  'tar.gz': Object.freeze([0x1f, 0x8b]),
+  'tar.zst': Object.freeze([0x28, 0xb5, 0x2f, 0xfd]),
 });
 
 /** Container format -> file extension used in artifact names. */

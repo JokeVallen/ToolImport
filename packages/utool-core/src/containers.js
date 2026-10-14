@@ -188,6 +188,20 @@ function createArchiveHandler(format) {
 }
 
 /**
+ * Do these bytes begin with this magic?
+ *
+ * Numeric comparison rather than Buffer.equals, because ARCHIVE_MAGIC holds plain arrays so this
+ * module stays free of Node-only globals and can be embedded in a browser page.
+ */
+function hasMagic(bytes, magic) {
+  if (bytes.length < magic.length) return false;
+  for (let i = 0; i < magic.length; i += 1) {
+    if (bytes[i] !== magic[i]) return false;
+  }
+  return true;
+}
+
+/**
  * Read an archive's entries and map them to destinations.
  *
  * Shared by inspect and extract so the two can never disagree.
@@ -199,7 +213,7 @@ function createArchiveHandler(format) {
  */
 function readArchive(bytes, format, artifact) {
   const magic = ARCHIVE_MAGIC[format];
-  if (magic && !bytes.subarray(0, magic.length).equals(magic)) {
+  if (magic && !hasMagic(bytes, magic)) {
     throw new ArtifactError(
       'E-ARTIFACT-FORMAT',
       `declared format '${format}' but the bytes do not carry that container's magic`,
