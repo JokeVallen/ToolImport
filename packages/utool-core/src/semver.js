@@ -106,13 +106,23 @@ export function isConstraint(text) {
 
 /**
  * Unity versions compare by year, then minor, then patch, then release stage
- * (a < b < f < p), then the stage number. `2019.4` has no patch or stage.
+ * (a < b < f < p), then the stage number, then the China-build revision.
+ * `2019.4` has no patch or stage.
+ *
+ * A distribution build may append a `cN` revision after the stage, as in
+ * `2021.3.45f1c2`. That suffix is part of the release identity, so it is
+ * compared rather than discarded: `2021.3.45f1c2` is treated as newer than
+ * `2021.3.45f1`. A trailing `(hash)` in parentheses is internal to Unity and
+ * carries no ordering, so it is accepted and ignored.
  *
  * @param {string} text
- * @returns {{year:number, minor:number, patch:number, stage:number, stageNumber:number}}
+ * @returns {{year:number, minor:number, patch:number, stage:number, stageNumber:number, revision:number}}
  */
 export function parseUnityVersion(text) {
-  const match = /^(\d{4})\.(\d+)(?:\.(\d+)([abfp])(\d+))?$/.exec(String(text).trim());
+  const match =
+    /^(\d{4})\.(\d+)(?:\.(\d+)([abfp])(\d+)(?:c(\d+))?)?(?:\s*\([0-9a-f]+\))?$/.exec(
+      String(text).trim(),
+    );
   if (!match) {
     throw new TypeError(`not a valid Unity version: ${JSON.stringify(text)}`);
   }
@@ -123,6 +133,7 @@ export function parseUnityVersion(text) {
     patch: match[3] === undefined ? 0 : Number(match[3]),
     stage: match[4] === undefined ? 2 : stageOrder[match[4]],
     stageNumber: match[5] === undefined ? 0 : Number(match[5]),
+    revision: match[6] === undefined ? 0 : Number(match[6]),
   };
 }
 
@@ -135,7 +146,7 @@ export function parseUnityVersion(text) {
 export function compareUnityVersions(a, b) {
   const left = parseUnityVersion(a);
   const right = parseUnityVersion(b);
-  for (const key of ['year', 'minor', 'patch', 'stage', 'stageNumber']) {
+  for (const key of ['year', 'minor', 'patch', 'stage', 'stageNumber', 'revision']) {
     if (left[key] !== right[key]) return left[key] - right[key];
   }
   return 0;

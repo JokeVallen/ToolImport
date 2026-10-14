@@ -25,6 +25,8 @@ import {
   artifactNameEngine,
   toManifest,
   verifyArtifactBytes,
+  parseUnityVersion,
+  compareUnityVersions,
 } from '../src/index.js';
 import { unityAdapter, UNITYPACKAGE_FORMAT } from '../../../providers/engine-unity/src/index.js';
 import { REGISTRY, makeContainers, makeCoreOnlyContainers } from './helpers.js';
@@ -183,3 +185,23 @@ test('a single-file payload still verifies size and digest', () => {
 function requireYaml(text) {
   return parseYaml(text);
 }
+
+test('Unity distribution builds with a cN revision parse and order correctly', () => {
+  // Regression: Application.unityVersion reports strings like "2021.3.45f1c2"
+  // on distribution builds. The original pattern accepted a single stage letter
+  // only, so every such host failed the floor check with E-PLATFORM-PARSE and
+  // the plan could not be produced at all -- on a perfectly valid editor.
+  const host = unityAdapter.hostFacts({ unityVersion: '2021.3.45f1c2' });
+  assert.equal(host.engineVersion, '2021.3.45f1c2');
+  assert.equal(unityAdapter.meetsRequirement('unity', 'minEngineVersion', '2019.4', host), true);
+  assert.equal(unityAdapter.meetsRequirement('unity', 'minEngineVersion', '2022.1', host), false);
+
+  // The revision is a real ordering dimension, not noise to discard.
+  assert.ok(compareUnityVersions('2021.3.45f1c2', '2021.3.45f1') > 0);
+  assert.ok(compareUnityVersions('2022.3.57f1c1', '2022.3.57f1c2') < 0);
+  // A trailing internal hash carries no ordering.
+  assert.equal(compareUnityVersions('2023.2.10f1 (316c1fd686f6)', '2023.2.10f1'), 0);
+  // Streams still order a < b < f.
+  assert.ok(compareUnityVersions('2023.3.0a17', '2023.3.0b4') < 0);
+  assert.throws(() => parseUnityVersion('not-a-version'), (error) => error instanceof TypeError);
+});
