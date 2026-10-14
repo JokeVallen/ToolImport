@@ -150,7 +150,6 @@ plus `schema/tool.schema.json`. Either side can be replaced as long as that hold
   implemented and tested; deleting files is deliberately the last thing to switch on.
 - **External source resolution.** The backend reports an `external` target as
   caller-resolved rather than shelling out to git.
-- **Executing a rollback.** `utool rollback` reports the recorded target digest, but
-  the registry publishes one version per tool, so the bytes a tool replaced are
-  normally no longer published. Naming what must be re-published is the honest
-  behaviour.
+- **Executing a rollback.** `utool rollback` reports the recorded target digest, but a
+  superseded artifact is not guaranteed to still be published - a maintainer may delete
+  it once nothing pins it. Naming what must be re-published is the honest behaviour.
