@@ -81,6 +81,15 @@ namespace DevCat.ToolImport.Editor
         private BackendRecords planRecords;
         private bool busy;
 
+        /// <summary>Free-text filter over the tool list.</summary>
+        private string searchText = string.Empty;
+
+        /// <summary>When set, only tools this project has installed are listed.</summary>
+        private bool installedOnly;
+
+        /// <summary>Search box contents are reset when the user clears it.</summary>
+        private const string SearchControlName = "DevCatToolSearch";
+
         /// <summary>Engine to install into; chosen in the toolbar.</summary>
         private string EngineName = "unity";
 
@@ -148,6 +157,45 @@ namespace DevCat.ToolImport.Editor
             EditorGUILayout.LabelField(statusMessage, EditorStyles.miniLabel);
         }
 
+        /// <summary>Tools passing the current search text and installed-only filter.</summary>
+        private List<AvailableTool> VisibleTools()
+        {
+            var visible = new List<AvailableTool>();
+            foreach (AvailableTool tool in tools)
+            {
+                if (installedOnly && !installedIds.Contains(tool.Id)) continue;
+                if (!Matches(tool, searchText)) continue;
+                visible.Add(tool);
+            }
+            return visible;
+        }
+
+        /// <summary>
+        /// Does a tool match the search text?
+        /// </summary>
+        /// <remarks>
+        /// Searches id, display name, type and tags, case-insensitively, and matches on
+        /// SUBSTRING rather than prefix: someone looking for the JSON library types
+        /// "json", not "SharpJson". Every field searched is one the TOOL record already
+        /// carries, so search costs no extra backend call.
+        ///
+        /// Internal rather than private so the behaviour tests can exercise it directly.
+        /// Filtering is the one piece of real logic in this window, and an untested
+        /// filter that silently matches nothing is indistinguishable from an empty
+        /// registry.
+        /// </remarks>
+        internal static bool Matches(AvailableTool tool, string needle)
+        {
+            if (string.IsNullOrEmpty(needle)) return true;
+            string lower = needle.ToLowerInvariant();
+            string[] haystack = { tool.Id, tool.DisplayName, tool.Type, tool.Tags, tool.Provides };
+            foreach (string field in haystack)
+            {
+                if (!string.IsNullOrEmpty(field) && field.ToLowerInvariant().Contains(lower)) return true;
+            }
+            return false;
+        }
+
         // ------------------------------------------------------------------
         // toolbar
         // ------------------------------------------------------------------
@@ -202,6 +250,39 @@ namespace DevCat.ToolImport.Editor
                 GUILayout.Label("working...", EditorStyles.miniLabel, GUILayout.Width(80f));
             }
 
+            // Search sits at the right end of the toolbar with the rest of the
+            // controls; the count next to it is what makes a filter's effect visible
+            // ("3 of 4") instead of leaving a short list unexplained.
+            GUILayout.FlexibleSpace();
+
+            bool hadFocus = GUI.GetNameOfFocusedControl() == SearchControlName;
+            GUI.SetNextControlName(SearchControlName);
+            searchText = GUILayout.TextField(
+                searchText ?? string.Empty,
+                EditorStyles.toolbarSearchField,
+                GUILayout.Width(180f));
+            if (hadFocus && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
+            {
+                searchText = string.Empty;
+                GUI.FocusControl(null);
+                Event.current.Use();
+            }
+
+            if (GUILayout.Button("Clear", EditorStyles.toolbarButton, GUILayout.Width(46f)))
+            {
+                searchText = string.Empty;
+                GUI.FocusControl(null);
+            }
+
+            installedOnly = GUILayout.Toggle(
+                installedOnly, "Installed", EditorStyles.toolbarButton, GUILayout.Width(68f));
+
+            int shown = VisibleTools().Count;
+            GUILayout.Label(
+                string.Format("{0}/{1}", shown, tools.Count),
+                EditorStyles.miniLabel,
+                GUILayout.Width(46f));
+
             EditorGUILayout.EndHorizontal();
         }
 
@@ -211,34 +292,67 @@ namespace DevCat.ToolImport.Editor
 
         private void DrawToolList()
         {
-            EditorGUILayout.BeginVertical(GUILayout.Width(position.width * 0.42f));
-            EditorGUILayout.LabelField(string.Format("Available ({0})", tools.Count), EditorStyles.boldLabel);
+            EditorGUILayout.BeginVertical(GUILayout.Width(position.width * 0.38f));
+
+            List<AvailableTool> visible = VisibleTools();
+            EditorGUILayout.LabelField(
+                string.Format("Tools ({0})", visible.Count),
+                EditorStyles.boldLabel);
 
             listScroll = EditorGUILayout.BeginScrollView(listScroll, GUILayout.ExpandHeight(true));
-            foreach (AvailableTool tool in tools)
+
+            if (visible.Count == 0)
             {
-                bool selected = tool.Id == selectedId;
-
-                // The tooltip is engine-neutral on purpose: engine floors live in
-                // TARGET records, and this list does not fetch them. Adding a
-                // per-engine tooltip here would mean issuing `show` for every row.
-                var label = new GUIContent(
-                    tool.DisplayName + "  " + tool.Version +
-                        (tool.Supports(EngineName) ? string.Empty : "  [not " + EngineName + "]"),
-                    tool.Id + "\n" + tool.Type +
-                    "\nengines: " + tool.Engines +
-                    (string.IsNullOrEmpty(tool.Provides) ? string.Empty : "\nprovides: " + tool.Provides) +
-                    (string.IsNullOrEmpty(tool.Dependencies) ? string.Empty : "\ndepends on " + tool.Dependencies));
-
-                // Unity has a string-style overload for GUILayout.Toggle, which
-                // avoids constructing a GUIStyle just to get a list row look.
-                if (GUILayout.Toggle(selected, label, "Button") != selected)
-                {
-                    Select(tool.Id);
-                }
+                // Say WHICH kind of empty this is. "No tools" and "nothing matched your
+                // filter" look identical otherwise, and the fix differs.
+                EditorGUILayout.HelpBox(
+                    tools.Count == 0
+                        ? "The registry listed no tools."
+                        : "No tool matches the current search or filter.",
+                    MessageType.None);
             }
+
+            foreach (AvailableTool tool in visible)
+            {
+                DrawToolRow(tool);
+            }
+
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
+        }
+
+        /// <summary>
+        /// One list row.
+        /// </summary>
+        /// <remarks>
+        /// A row carries three facts the previous flat button could not: whether the tool
+        /// is INSTALLED, whether this engine can use it, and whether installing it is
+        /// supported at all. Each is drawn as a short prefix rather than a separate
+        /// column, because the list is narrow and a prefix survives a resize.
+        /// </remarks>
+        private void DrawToolRow(AvailableTool tool)
+        {
+            bool selected = tool.Id == selectedId;
+            bool installed = installedIds.Contains(tool.Id);
+
+            string marker = installed ? "● " : "○ ";
+            string suffix = tool.Supports(EngineName) ? string.Empty : "  [no " + EngineName + "]";
+
+            var label = new GUIContent(
+                marker + tool.DisplayName + "  " + tool.Version + suffix,
+                tool.Id + "\n" + tool.Type +
+                (installed ? "\ninstalled" : string.Empty) +
+                "\nengines: " + tool.Engines +
+                (string.IsNullOrEmpty(tool.Provides) ? string.Empty : "\nprovides: " + tool.Provides) +
+                (string.IsNullOrEmpty(tool.Dependencies) ? string.Empty : "\ndepends on " + tool.Dependencies));
+
+            // A row that cannot be installed is still SELECTABLE, so its detail pane can
+            // explain why. Disabling the row would hide the explanation behind a control
+            // the user cannot operate.
+            if (GUILayout.Toggle(selected, label, "Button") != selected)
+            {
+                Select(tool.Id);
+            }
         }
 
         // ------------------------------------------------------------------
@@ -308,7 +422,8 @@ namespace DevCat.ToolImport.Editor
                 EditorGUILayout.LabelField("Targets", EditorStyles.boldLabel);
                 foreach (ToolTargetInfo target in targets)
                 {
-                    string marker = target.Engine == EngineName ? "> " : "  ";                    EditorGUILayout.LabelField(
+                    string marker = target.Engine == EngineName ? "> " : "  ";
+                    EditorGUILayout.LabelField(
                         marker + target.Engine + "  (" + target.ArtifactType +
                         (string.IsNullOrEmpty(target.ArtifactFormat) ? string.Empty : "/" + target.ArtifactFormat) +
                         ")", EditorStyles.boldLabel);
@@ -319,11 +434,17 @@ namespace DevCat.ToolImport.Editor
                         EditorGUILayout.LabelField(
                             "    upstream: " + target.ExternalUrl + " @ " + target.ExternalRef,
                             EditorStyles.wordWrappedLabel);
+                        // Warning, not Info, and worded as an action the user must take:
+                        // this is the one case where the tool is visible but unusable,
+                        // and "no artifact" is easy to skim past.
                         EditorGUILayout.HelpBox(
-                            "This target stores metadata only: no artifact lives in the registry. The backend " +
-                            "reports it as caller-resolved rather than fetching it, and the receipt records the " +
-                            "url and ref so the source can be audited later.",
-                            MessageType.Info);
+                            "NOT INSTALLABLE by this window.\n\n" +
+                            "This tool stores metadata only - no artifact lives in the registry. Its code " +
+                            "comes from the upstream source above at the pinned ref, so the backend reports " +
+                            "the target as caller-resolved and installs nothing.\n\n" +
+                            "Resolving it (cloning the source) is not implemented. Add it to the project " +
+                            "manually, or wait for that support.",
+                            MessageType.Warning);
                     }
                     else if (!string.IsNullOrEmpty(target.ContentRoot))
                     {
@@ -400,8 +521,24 @@ namespace DevCat.ToolImport.Editor
 
             // Actions are kept outside the scroll view so they are always reachable.
             EditorGUILayout.Space();
+
+            // A tool whose target this build cannot actually install must not OFFER the
+            // action. The backend reports an external/git target as caller-resolved and
+            // installs nothing, so "Install" here would appear to succeed while writing
+            // no files -- the user's project is unchanged and nothing says so. Refusing
+            // up front, with the reason above, is the honest version.
+            bool installable = IsInstallableHere();
+            if (!installable)
+            {
+                EditorGUILayout.HelpBox(
+                    "This tool cannot be installed by this window. See the note above for the reason.\n" +
+                    "The backend reports the target without resolving it, so installing it here would " +
+                    "appear to succeed while writing nothing.",
+                    MessageType.Warning);
+            }
+
             EditorGUILayout.BeginHorizontal();
-            using (new EditorGUI.DisabledScope(busy))
+            using (new EditorGUI.DisabledScope(busy || !installable))
             {
                 if (GUILayout.Button("Verify and plan (writes nothing)"))
                 {
@@ -414,26 +551,50 @@ namespace DevCat.ToolImport.Editor
                         Install();
                     }
                 }
-                // Uninstall is its own action, not a mode of Install: it acts on
-                // what a RECEIPT says is installed, and asks for its own confirmation
-                // because it deletes files.
-                //
-                // Disabled for a tool with no receipt: offering it invited a click that
-                // could only produce "no receipt for X", which reads as a broken tool
-                // rather than as "this was never installed".
-                using (new EditorGUI.DisabledScope(
-                    !installedIds.Contains(selectedId) || string.IsNullOrEmpty(selectedId)))
+            }
+
+            // Uninstall stays available regardless: a tool that is ALREADY installed
+            // must always be removable, even if this build would no longer install it.
+            // Blocking removal would trap the user with files they cannot get rid of.
+            using (new EditorGUI.DisabledScope(
+                busy || !installedIds.Contains(selectedId) || string.IsNullOrEmpty(selectedId)))
+            {
+                if (GUILayout.Button(
+                        installedIds.Contains(selectedId) ? "Uninstall..." : "Uninstall (not installed)"))
                 {
-                    if (GUILayout.Button(
-                            installedIds.Contains(selectedId) ? "Uninstall..." : "Uninstall (not installed)"))
-                    {
-                        Uninstall();
-                    }
+                    Uninstall();
                 }
             }
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
+        }
+
+        /// <summary>
+        /// Can this window actually install the selected tool's target?
+        /// </summary>
+        /// <remarks>
+        /// False when this engine's target is an `external` source (git, for example):
+        /// the backend deliberately reports it as caller-resolved and writes nothing.
+        /// Also false when the tool declares no target for this engine at all.
+        /// </remarks>
+        private bool IsInstallableHere()
+        {
+            if (detailRecords == null) return false;
+
+            ToolTargetInfo mine = null;
+            foreach (string[] fields in detailRecords.Of("TARGET"))
+            {
+                ToolTargetInfo candidate = ToolTargetInfo.FromFields(fields);
+                if (candidate.Engine == EngineName)
+                {
+                    mine = candidate;
+                    break;
+                }
+            }
+
+            if (mine == null) return false;
+            return !mine.IsExternal;
         }
 
         /// <summary>

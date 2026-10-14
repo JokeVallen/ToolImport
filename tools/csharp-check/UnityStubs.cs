@@ -79,6 +79,29 @@ namespace UnityEngine
         public static GUILayoutOption ExpandHeight(bool e) => new GUILayoutOption();
         public static Vector2 BeginScrollView(Vector2 pos, params GUILayoutOption[] options) => pos;
         public static void EndScrollView() { }
+        public static void FlexibleSpace() { }
+        public static string TextField(string text, GUIStyle style, params GUILayoutOption[] options) => text;
+    }
+
+    /// <summary>Stand-in for the editor's immediate-mode event stream.</summary>
+    public class Event
+    {
+        public static Event current = new Event();
+        public EventType type;
+        public KeyCode keyCode;
+        public void Use() { }
+    }
+
+    public enum EventType { MouseDown, MouseUp, KeyDown, KeyUp, Repaint, Layout }
+
+    public enum KeyCode { None, Escape, Return, Tab }
+
+    /// <summary>Keyboard focus, used to detect and clear the search field.</summary>
+    public static class GUI
+    {
+        public static string GetNameOfFocusedControl() => string.Empty;
+        public static void SetNextControlName(string name) { }
+        public static void FocusControl(string name) { }
     }
 
     public static class EditorStyles
@@ -90,6 +113,7 @@ namespace UnityEngine
         public static GUIStyle toolbar = new GUIStyle();
         public static GUIStyle toolbarButton = new GUIStyle();
         public static GUIStyle toolbarTextField = new GUIStyle();
+        public static GUIStyle toolbarSearchField = new GUIStyle();
     }
 }
 

@@ -48,6 +48,7 @@ namespace CsharpCheck
             ProblemsAreCollected();
             PlanToolFieldsStayAligned();
             UnescapeHandlesTabAndNewline();
+            SearchMatchesTheRightFields();
 
             Console.WriteLine(failures == 0
                 ? "record reader behaviour OK"
@@ -143,6 +144,33 @@ namespace CsharpCheck
             Check("escaped newline is restored", BackendRecords.Unescape("a\\nb") == "a\nb");
             Check("escaped backslash is restored", BackendRecords.Unescape("a\\\\b") == "a\\b");
             Check("plain text is untouched", BackendRecords.Unescape("Assets/Guard.cs") == "Assets/Guard.cs");
+        }
+
+        /// <summary>
+        /// Search is the window's only real logic. A filter that silently matches
+        /// nothing looks exactly like an empty registry, so it is tested directly.
+        /// </summary>
+        private static void SearchMatchesTheRightFields()
+        {
+            // Built from a TOOL record, so this also pins the field order.
+            AvailableTool tool = AvailableTool.FromFields(new[]
+            {
+                "libs-sharp-json", "3.0.0", "tool-library", "unity",
+                "data.json.serialization", "", "SharpJson", "json,assembly", "", "payloads/x/tool.yaml",
+            });
+
+            Check("an empty needle matches", ImportToolWindow.Matches(tool, ""));
+            Check("a null needle matches", ImportToolWindow.Matches(tool, null));
+            Check("id matches", ImportToolWindow.Matches(tool, "libs-sharp-json"));
+            Check("display name matches", ImportToolWindow.Matches(tool, "SharpJson"));
+            Check("type matches", ImportToolWindow.Matches(tool, "tool-library"));
+            Check("tags match", ImportToolWindow.Matches(tool, "assembly"));
+            Check("provides matches", ImportToolWindow.Matches(tool, "serialization"));
+
+            // Substring, not prefix: someone hunting the JSON library types "json".
+            Check("substring matches anywhere", ImportToolWindow.Matches(tool, "json"));
+            Check("case is ignored", ImportToolWindow.Matches(tool, "SHARPJSON"));
+            Check("a non-match does not match", !ImportToolWindow.Matches(tool, "godot"));
         }
     }
 }
