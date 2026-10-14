@@ -314,6 +314,13 @@ namespace DevCat.ToolImport.Editor
                         Install();
                     }
                 }
+                // Uninstall is its own action, not a mode of Install: it acts on
+                // what a RECEIPT says is installed, and asks for its own confirmation
+                // because it deletes files.
+                if (GUILayout.Button("Uninstall..."))
+                {
+                    Uninstall();
+                }
             }
             EditorGUILayout.EndHorizontal();
 
@@ -436,6 +443,45 @@ namespace DevCat.ToolImport.Editor
                     installed++;
                 }
                 statusMessage = string.Format("{0} tool(s) installed. Receipts recorded under Library/.", installed);
+                planRecords = null;
+                AssetDatabase.Refresh();
+            });
+        }
+
+        /// <summary>
+        /// Uninstall the selected tool, confirming by file count first.
+        /// </summary>
+        /// <remarks>
+        /// The confirmation names the tool, not the file list: a receipt can cover
+        /// dozens of files and a wall of paths in a dialog is read by nobody. What a
+        /// user needs to decide is "was this the tool I meant", and the count tells
+        /// them the size of the change.
+        /// </remarks>
+        private void Uninstall()
+        {
+            if (string.IsNullOrEmpty(selectedId)) return;
+
+            if (!EditorUtility.DisplayDialog(
+                    "Uninstall " + selectedId + "?",
+                    "Files this tool installed will be removed, and its receipt cleared. Files still " +
+                    "claimed by another installed tool are kept. This cannot be undone from here, but " +
+                    "reinstalling restores the original files.",
+                    "Uninstall",
+                    "Cancel"))
+            {
+                return;
+            }
+
+            Run("uninstall \"" + selectedId + "\"", records =>
+            {
+                int removed = 0;
+                foreach (string[] ignored in records.Of("REMOVED"))
+                {
+                    removed++;
+                }
+                statusMessage = string.Format(
+                    "{0} file(s) removed for {1}.", removed, selectedId);
+                detailRecords = null;
                 planRecords = null;
                 AssetDatabase.Refresh();
             });

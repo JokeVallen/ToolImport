@@ -549,11 +549,44 @@ async function cmdUninstall({ flags, positionals }) {
   if (flags.dryRun) return EXIT.OK;
   if (plan.missingReceipts.length > 0) return EXIT.FAILURE;
 
-  throw new UtoolError(
-    'E-NOT-IMPLEMENTED',
-    'uninstall execution is not wired up yet; the plan above is authoritative. ' +
-      'Removal is deliberately the last piece to be enabled because it deletes files.',
-  );
+  const outcome = await store.executeUninstall(plan, {
+    projectRoot,
+    receiptStore: store,
+    toolIds: positionals,
+  });
+
+  if (inRecords(flags)) {
+    for (const file of outcome.removed) rec.record('REMOVED', [file]);
+    for (const directory of outcome.directories) rec.record('REMOVEDDIR', [directory]);
+    for (const entry of outcome.failed) rec.record('PROBLEM', ['E-UNINSTALL-FILE', `${entry.file}: ${entry.reason}`]);
+    for (const id of outcome.receipts) rec.record('RECEIPTREMOVED', [id]);
+    rec.record('RESULT', [
+      'removed', String(outcome.removed.length),
+      'directories', String(outcome.directories.length),
+      'failed', String(outcome.failed.length),
+    ]);
+    return outcome.failed.length === 0 ? EXIT.OK : EXIT.FAILURE;
+  }
+
+  if (flags.json) {
+    out.json({
+      ok: outcome.failed.length === 0,
+      project: projectRoot,
+      ...outcome,
+    });
+  } else {
+    out.heading(`Removed from ${projectRoot}`);
+    out.line(`${outcome.removed.length} file(s) removed, ${outcome.keep?.length ?? plan.keep.length} kept (shared).`);
+    for (const file of outcome.removed) out.line(`  removed  ${file}`);
+    for (const directory of outcome.directories) out.line(`  rmdir    ${directory}`);
+    for (const entry of outcome.failed) out.line(`  FAILED   ${entry.file}: ${entry.reason}`);
+    if (outcome.receipts.length > 0) {
+      out.line('');
+      out.line(`receipt(s) cleared: ${outcome.receipts.join(', ')}`);
+    }
+  }
+
+  return outcome.failed.length === 0 ? EXIT.OK : EXIT.FAILURE;
 }
 
 async function cmdStatus({ flags }) {

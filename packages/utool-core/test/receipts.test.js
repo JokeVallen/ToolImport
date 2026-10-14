@@ -10,7 +10,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -308,4 +309,92 @@ test('a summary groups installs by artifact digest', async (t) => {
   assert.equal(summary.totalTools, 2);
   assert.equal(summary.totalFiles, 2);
   assert.deepEqual(summary.byDigest.get(digest), ['one', 'two']);
+});
+
+test('uninstall execution removes exactly the planned files and clears the receipt', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await store.write(
+    baseReceipt({
+      toolId: 'demo',
+      version: '1.0.0',
+      artifactSha256: 'a'.repeat(64),
+      installedFiles: ['Assets/Demo/One.cs', 'Assets/Demo/Nested/Two.cs'],
+    }),
+  );
+
+  for (const relative of ['Assets/Demo/One.cs', 'Assets/Demo/Nested/Two.cs']) {
+    await mkdir(path.dirname(path.join(project, relative)), { recursive: true });
+    await writeFile(path.join(project, relative), 'x', 'utf8');
+  }
+  // A file the user added inside the tool's directory. It is NOT in the receipt,
+  // so it must survive: ownership is of the recorded files, not of the folder.
+  await writeFile(path.join(project, 'Assets/Demo/mine.cs'), 'mine', 'utf8');
+
+  const plan = await store.planUninstall(['demo']);
+  const outcome = await store.executeUninstall(plan, {
+    projectRoot: project,
+    receiptStore: store,
+    toolIds: ['demo'],
+  });
+
+  assert.deepEqual(outcome.failed, []);
+  assert.equal(outcome.removed.length, 2);
+  assert.ok(!existsSync(path.join(project, 'Assets/Demo/One.cs')));
+  assert.ok(!existsSync(path.join(project, 'Assets/Demo/Nested/Two.cs')));
+  assert.ok(existsSync(path.join(project, 'Assets/Demo/mine.cs')), 'an unrecorded file must survive');
+  assert.deepEqual(outcome.receipts, ['demo']);
+  assert.deepEqual(await store.list(), [], 'the receipt is cleared');
+});
+
+test('uninstall refuses to delete outside the project root', async (t) => {
+  const project = await tempProject();
+  const outside = path.join(path.dirname(project), `outside-${path.basename(project)}.txt`);
+  t.after(async () => {
+    await rm(project, { recursive: true, force: true });
+    await rm(outside, { force: true });
+  });
+
+  await writeFile(outside, 'precious', 'utf8');
+  await mkdir(path.join(project, 'Assets'), { recursive: true });
+  await writeFile(path.join(project, 'Assets', 'inner.cs'), 'x', 'utf8');
+
+  const store = new ReceiptStore(project);
+  // A hand-edited receipt naming a path outside the project.
+  const outcome = await store.executeUninstall(
+    { delete: ['../' + path.basename(outside), 'Assets/inner.cs'], missingReceipts: [] },
+    { projectRoot: project, receiptStore: store, toolIds: [] },
+  );
+
+  assert.ok(existsSync(outside), 'a path outside the project must never be deleted');
+  assert.equal(await readFile(outside, 'utf8'), 'precious');
+  assert.ok(!existsSync(path.join(project, 'Assets', 'inner.cs')), 'the in-project file is still removed');
+  assert.equal(outcome.failed.length, 1);
+  assert.equal(outcome.failed[0].reason, 'outside the project root');
+});
+
+test('uninstall never removes Assets itself, and tidies only empty directories', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await store.write(
+    baseReceipt({
+      toolId: 'demo',
+      version: '1.0.0',
+      artifactSha256: 'b'.repeat(64),
+      installedFiles: ['Assets/Editor/Demo/Thing.cs'],
+    }),
+  );
+  await mkdir(path.join(project, 'Assets/Editor/Demo'), { recursive: true });
+  await writeFile(path.join(project, 'Assets/Editor/Demo/Thing.cs'), 'x', 'utf8');
+
+  const plan = await store.planUninstall(['demo']);
+  await store.executeUninstall(plan, { projectRoot: project, receiptStore: store, toolIds: ['demo'] });
+
+  assert.ok(existsSync(path.join(project, 'Assets')), 'Assets must survive');
+  assert.ok(existsSync(path.join(project, 'Assets/Editor')), 'Assets/Editor must survive');
+  assert.ok(!existsSync(path.join(project, 'Assets/Editor/Demo')), 'the now-empty tool folder is tidied');
 });

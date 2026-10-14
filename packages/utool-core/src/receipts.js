@@ -20,7 +20,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { stringify as stringifyYaml } from 'yaml';
@@ -260,6 +260,110 @@ export class ReceiptStore {
     alreadyGone.sort();
     modified.sort((a, b) => a.file.localeCompare(b.file));
     return { delete: toDelete, keep: toKeep, missingReceipts, alreadyGone, modified };
+  }
+
+  /**
+   * Execute an uninstall plan.
+   *
+   * The plan from {@link planUninstall} is authoritative: this removes exactly the
+   * files it lists and nothing else. Three rules make that safe.
+   *
+   *  1. Every path is resolved against the project root and rejected if it escapes.
+   *     A receipt is a file on disk, and a hand-edited or malicious one must not be
+   *     able to delete anything outside the project.
+   *  2. A file still claimed by a remaining receipt is never removed, so a shared
+   *     file survives until the last dependent leaves.
+   *  3. A directory is removed only when it is empty afterwards, and never the
+   *     project root or `Assets` itself. Recursively deleting a directory would
+   *     take unrelated work with it; leaving an empty one behind costs nothing.
+   *
+   * Receipts are deleted last, so an interruption leaves the receipt to describe
+   * what is still on disk rather than losing the record of a half-done removal.
+   *
+   * @param {{delete: string[], missingReceipts: string[]}} plan
+   * @param {{projectRoot: string, receiptStore: ReceiptStore, toolIds?: string[]}} options
+   * @returns {Promise<{removed: string[], failed: {file: string, reason: string}[], directories: string[], receipts: string[]}>}
+   */
+  async executeUninstall(plan, options) {
+    const { projectRoot, receiptStore } = options;
+    const toolIds = options.toolIds ?? [];
+
+    const root = path.resolve(projectRoot);
+    const removed = [];
+    const failed = [];
+    /** @type {Set<string>} */
+    const touchedDirectories = new Set();
+
+    for (const relative of plan.delete ?? []) {
+      const absolute = path.resolve(root, relative);
+
+      // Confinement check. `path.relative` is empty when the paths are equal, and
+      // starts with '..' when the target is outside the root.
+      const rel = path.relative(root, absolute);
+      if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+        failed.push({ file: relative, reason: 'outside the project root' });
+        continue;
+      }
+
+      try {
+        await rm(absolute, { force: true });
+        removed.push(relative);
+        // Remember the parent so empty directories can be tidied afterwards.
+        touchedDirectories.add(path.dirname(absolute));
+      } catch (cause) {
+        failed.push({ file: relative, reason: cause.message });
+      }
+    }
+
+    // Remove now-empty directories, deepest first.
+    //
+    // Only three paths are protected: the project root, `Assets`, and `Assets/Editor`.
+    // Those are structural -- a Unity project needs them and they routinely hold
+    // unrelated work -- so a tool must not remove them. Everything deeper is fair
+    // game once it is EMPTY, which is what makes the tool's own folder disappear
+    // while a folder that still holds the user's files stays.
+    const directories = [];
+    const protectedPaths = new Set([
+      root,
+      path.join(root, 'Assets'),
+      path.join(root, 'Assets', 'Editor'),
+    ]);
+    const ordered = [...touchedDirectories].sort((a, b) => b.length - a.length);
+    for (const directory of ordered) {
+      let current = directory;
+      while (
+        current.length > root.length &&
+        current.startsWith(root) &&
+        !protectedPaths.has(current)
+      ) {
+        try {
+          const entries = await readdir(current);
+          if (entries.length > 0) break;
+          // rmdir, NOT rm: `rm` refuses a directory without `recursive`, and
+          // `recursive` here would delete work the user put in it. The emptiness
+          // check above is what makes this safe, so only an EMPTY directory goes.
+          await rmdir(current);
+          directories.push(path.relative(root, current).replace(/\\/g, '/'));
+        } catch {
+          break;
+        }
+        current = path.dirname(current);
+      }
+    }
+
+    // Last, so an interrupted run still has a receipt describing what remains.
+    const receipts = [];
+    for (const id of toolIds) {
+      if ((plan.missingReceipts ?? []).includes(id)) continue;
+      try {
+        await receiptStore.remove(id);
+        receipts.push(id);
+      } catch (cause) {
+        failed.push({ file: `receipt:${id}`, reason: cause.message });
+      }
+    }
+
+    return { removed, failed, directories, receipts };
   }
 
   /**
