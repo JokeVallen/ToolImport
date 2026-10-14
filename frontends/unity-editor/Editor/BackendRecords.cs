@@ -56,6 +56,26 @@ namespace DevCat.ToolImport.Editor
             }
         }
 
+        /// <summary>
+        /// The `--records` contract version the backend emitted, or null when it did not say.
+        /// </summary>
+        /// <remarks>
+        /// The backend sends this as the first record of every run so a reader can decide whether it
+        /// understands the stream before parsing values out of it. Null means an older backend that
+        /// predates versioning, which is still readable - the version only ever added records.
+        /// </remarks>
+        public string RecordsVersion()
+        {
+            foreach (var entry in All)
+            {
+                if (entry.Key == "META" && entry.Value.Length >= 2 && entry.Value[0] == "recordsVersion")
+                {
+                    return entry.Value[1];
+                }
+            }
+            return null;
+        }
+
         public bool Has(string type)
         {
             foreach (var entry in All)

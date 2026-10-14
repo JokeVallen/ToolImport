@@ -8,8 +8,24 @@
  * obvious rather than a silent no-op.
  *
  * Field values escape TAB, CR and LF so a record is always exactly one line.
- * Every record type is documented in the CLI's --help text.
+ *
+ * THE CONTRACT IS VERSIONED, and the version is in the first record. Anything that reads this
+ * stream - the Unity window today, a hosted service or a model-driven agent tomorrow - can decide
+ * whether it understands the run before acting on it, instead of discovering a removed field when a
+ * value fails to parse. Bump RECORDS_VERSION for a change a reader could misread: a removed record
+ * type, a reordered field, a changed meaning. Adding a new record type or appending a field at the
+ * end does not need a bump, because a reader that keys on the types it knows is unaffected.
  */
+
+/**
+ * Version of the `--records` contract.
+ *
+ * 1 - the original: META, TOOL, TARGET, DETAIL, DEPENDENCY, WILLINSTALL, PROBLEM,
+ *     PLANTOOL, PLANFILE, PLAN, INSTALLED, INSTALLEDFILE, SKIPPED, RESULT, RECEIPT,
+ *     WARNING, ERROR.
+ * 2 - adds VERSIONS (one per published version, since a tool may publish several).
+ */
+export const RECORDS_VERSION = '2';
 
 /** @param {unknown} value @returns {string} */
 export function escapeField(value) {
@@ -32,9 +48,16 @@ export function record(type, fields = []) {
 }
 
 /**
+ * The first record of every `--records` run.
+ *
+ * The version comes first so a reader can reject a stream it does not understand BEFORE parsing a
+ * single value out of it. Getting this wrong is how a format change becomes silently wrong data
+ * rather than a clear error.
+ *
  * @param {string} registry
  */
 export function meta(registry) {
+  record('META', ['recordsVersion', RECORDS_VERSION]);
   record('META', ['registry', registry]);
 }
 
