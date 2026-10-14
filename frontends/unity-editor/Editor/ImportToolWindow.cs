@@ -57,6 +57,16 @@ namespace DevCat.ToolImport.Editor
         private static List<AvailableTool> cachedTools;
         private static string cachedRegistryLocator = string.Empty;
 
+        /// <summary>
+        /// Tool ids this project has a receipt for, shared across window instances.
+        /// </summary>
+        /// <remarks>
+        /// Used to disable Uninstall for a tool that is not installed. Asking the
+        /// backend with `status` keeps this derived from the receipts rather than
+        /// guessed from the project layout.
+        /// </remarks>
+        private static readonly HashSet<string> installedIds = new HashSet<string>();
+
         private List<AvailableTool> tools
         {
             get { return cachedTools ?? (cachedTools = new List<AvailableTool>()); }
@@ -87,6 +97,11 @@ namespace DevCat.ToolImport.Editor
         {
             registryLocator = ResolveRegistryLocator();
 
+            // Know what is installed before drawing, so Uninstall is disabled for a
+            // tool that is not there. This is a local read of the receipts, not a
+            // registry request, so it is cheap on every open.
+            RefreshInstalled();
+
             // Show the cached listing immediately, and refresh in the background when
             // there is nothing cached yet. On a reopen this is instant and silent; on a
             // first open it fills itself instead of showing an empty pane that says
@@ -100,6 +115,19 @@ namespace DevCat.ToolImport.Editor
                 statusMessage = "Loading the registry...";
                 Refresh();
             }
+        }
+
+        /// <summary>Re-read which tools this project has installed.</summary>
+        private void RefreshInstalled()
+        {
+            Run("status", records =>
+            {
+                installedIds.Clear();
+                foreach (string[] fields in records.Of("RECEIPT"))
+                {
+                    if (fields.Length > 0) installedIds.Add(fields[0]);
+                }
+            });
         }
 
         private void OnGUI()
@@ -389,9 +417,18 @@ namespace DevCat.ToolImport.Editor
                 // Uninstall is its own action, not a mode of Install: it acts on
                 // what a RECEIPT says is installed, and asks for its own confirmation
                 // because it deletes files.
-                if (GUILayout.Button("Uninstall..."))
+                //
+                // Disabled for a tool with no receipt: offering it invited a click that
+                // could only produce "no receipt for X", which reads as a broken tool
+                // rather than as "this was never installed".
+                using (new EditorGUI.DisabledScope(
+                    !installedIds.Contains(selectedId) || string.IsNullOrEmpty(selectedId)))
                 {
-                    Uninstall();
+                    if (GUILayout.Button(
+                            installedIds.Contains(selectedId) ? "Uninstall..." : "Uninstall (not installed)"))
+                    {
+                        Uninstall();
+                    }
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -543,6 +580,7 @@ namespace DevCat.ToolImport.Editor
                 }
                 statusMessage = string.Format("{0} tool(s) installed. Receipts recorded under Library/.", installed);
                 planRecords = null;
+                RefreshInstalled();
                 AssetDatabase.Refresh();
             });
         }
@@ -582,6 +620,7 @@ namespace DevCat.ToolImport.Editor
                     "{0} file(s) removed for {1}.", removed, selectedId);
                 detailRecords = null;
                 planRecords = null;
+                RefreshInstalled();
                 AssetDatabase.Refresh();
             });
         }

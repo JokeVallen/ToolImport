@@ -119,11 +119,24 @@ test('a receipt lets the payload be removed with no residue', registryTest(), as
   await executeInstall(report, { projectRoot: project, source, containers, receiptStore: store });
 
   const receipt = await store.read('libs-sharp-json');
-  assert.deepEqual(receipt.installedFiles, ['Assets/Plugins/SharpJson.dll']);
-  assert.ok(existsSync(path.join(project, 'Assets/Plugins/SharpJson.dll')));
+  assert.deepEqual(receipt.installedFiles, ['Assets/SharpJson/SharpJson.dll']);
+  assert.ok(existsSync(path.join(project, 'Assets/SharpJson/SharpJson.dll')));
+
+  // A bare dll must land in a TOOL-OWNED directory, not a shared engine one.
+  // Assets/Plugins is where developers put their own native and managed plugins, so
+  // a tool installing there cannot be uninstalled without risking their work.
+  const sharedEngineDirs = ['Assets/Plugins', 'Assets/Editor', 'Assets/Resources'];
+  for (const file of receipt.installedFiles) {
+    for (const shared of sharedEngineDirs) {
+      assert.ok(
+        !file.startsWith(`${shared}/`),
+        `'${file}' installs into ${shared}, a shared engine directory`,
+      );
+    }
+  }
 
   const plan2 = await store.planUninstall(['libs-sharp-json']);
-  assert.deepEqual(plan2.delete, ['Assets/Plugins/SharpJson.dll']);
+  assert.deepEqual(plan2.delete, ['Assets/SharpJson/SharpJson.dll']);
   assert.deepEqual(plan2.keep, []);
 });
 
