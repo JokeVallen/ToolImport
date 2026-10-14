@@ -25,9 +25,9 @@ const BOOLEAN_FLAGS = new Set([
  *
  * These accumulate into an array. Without this list a repeatable flag would simply
  * overwrite itself, so `--also-engine godot --also-engine unreal` would silently
- * keep only the last engine.
+ * keep only the last engine, and `--mirror a --mirror b` only the last mirror.
  */
-const REPEATABLE_FLAGS = new Set(['also-engine']);
+const REPEATABLE_FLAGS = new Set(['also-engine', 'mirror']);
 
 /** @type {Record<string,string>} maps a flag to its canonical camelCase key */
 const KEY_ALIASES = {

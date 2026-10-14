@@ -45,7 +45,12 @@ export {
 export { parseUtool, loadUtool, checkHeader, loadKind } from './loader.js';
 export { SchemaValidator } from './schema.js';
 export { ToolManifest, ToolTarget, toManifest } from './manifest.js';
-export { LocalRegistrySource, HttpRegistrySource, createSource } from './source.js';
+export {
+  LocalRegistrySource,
+  HttpRegistrySource,
+  MirroredRegistrySource,
+  createSource,
+} from './source.js';
 
 export {
   parseVersion,
