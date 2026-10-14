@@ -4,7 +4,21 @@ The companion tool for [DevCatToolRegistry](../DevCatToolRegistry): browse the
 registry, verify a payload, install it, and record a receipt so it can be removed
 cleanly later.
 
-**Language**: [English](README.en.md) · [中文](README.zh-CN.md)
+**Language**: [English](README.en.md) · [中文](README.md)
+
+---
+
+## Documentation
+
+| Document | 中文（主） |
+| --- | --- |
+| [Architecture](docs/architecture.en.md) (includes the Unity front end) | [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) |
+| [Decisions](docs/decisions.en.md) | [docs/decisions.zh-CN.md](docs/decisions.zh-CN.md) |
+| [Changelog](CHANGELOG.en.md) | [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md) |
+
+The normative data contract lives in the registry repository:
+[`../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md`](../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md).
+This repository only implements it.
 
 ---
 

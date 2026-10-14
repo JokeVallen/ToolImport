@@ -3,7 +3,7 @@
 Status: **implemented**. This document describes the shape the code actually has,
 not a plan.
 
-**Language**: [English](architecture.en.md) · [中文](architecture.zh-CN.md)
+**Language**: [English](architecture.en.md) · [中文](architecture.zh-CN.md) · [back to index](../README.md)
 
 ---
 

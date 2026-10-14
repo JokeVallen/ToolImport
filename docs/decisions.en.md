@@ -3,7 +3,7 @@
 Short notes on choices that are expensive to reverse. Each entry states the decision,
 the reasoning, and what would make us revisit it.
 
-**Language**: [English](decisions.en.md) · [中文](decisions.zh-CN.md)
+**Language**: [English](decisions.en.md) · [中文](decisions.zh-CN.md) · [back to index](../README.md)
 
 ---
 

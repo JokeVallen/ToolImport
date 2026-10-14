@@ -7,7 +7,7 @@ of the tool are its own; the metadata format it reads is versioned separately by
 `formatVersion`, documented in
 [`../DevCatToolRegistry/docs/SPEC.en.md`](../DevCatToolRegistry/docs/SPEC.en.md).
 
-**Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md)
+**Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
 ## [Unreleased]
 

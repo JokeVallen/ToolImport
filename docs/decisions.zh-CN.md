@@ -2,7 +2,7 @@
 
 对**难以反悔**的选择做简短记录。每条包含：决定、理由、以及在什么条件下会重新考虑。
 
-**语言**：[中文](decisions.zh-CN.md) · [English](decisions.en.md)
+**语言**：[中文](decisions.zh-CN.md) · [English](decisions.en.md) · [返回目录](../README.md)
 
 ---
 

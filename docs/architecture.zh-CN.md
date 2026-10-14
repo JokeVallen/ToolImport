@@ -2,7 +2,7 @@
 
 状态：**已实现**。本文按代码的实际形状描述组件边界，而不是描述计划。
 
-**语言**：[中文](architecture.zh-CN.md) · [English](architecture.en.md)
+**语言**：[中文](architecture.zh-CN.md) · [English](architecture.en.md) · [返回目录](../README.md)
 
 ---
 

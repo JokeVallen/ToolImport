@@ -6,7 +6,7 @@
 元信息格式由 `formatVersion` 单独编号，见
 [`../DevCatToolRegistry/docs/SPEC.zh-CN.md`](../DevCatToolRegistry/docs/SPEC.zh-CN.md)。
 
-**语言**：[中文](CHANGELOG.zh-CN.md) · [English](CHANGELOG.en.md)
+**语言**：[中文](CHANGELOG.zh-CN.md) · [English](CHANGELOG.en.md) · [返回目录](README.md)
 
 ## [未发布]
 
