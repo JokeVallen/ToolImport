@@ -15,7 +15,7 @@
  * moment someone adds a requirement key it has not been taught yet.
  */
 
-import { compareDotNetVersions, compareUnityVersions } from '@unitydevcommonlib/utool-core';
+import { compareDotNetVersions, compareUnityVersions } from '@devcattoolregistry/utool-core';
 import { unitypackageHandler, UNITYPACKAGE_FORMAT } from './unitypackage.js';
 
 export const ENGINE = 'unity';

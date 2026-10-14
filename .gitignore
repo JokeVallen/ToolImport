@@ -35,8 +35,7 @@ yarn-error.log*
 *.userprefs
 
 # --- .NET / Unity build output ---------------------------------------------
-# bin/ and obj/ matter here: they are what the C# type-check harness produces.
-[Bb]in/
+# obj/ and Library/ are always build output, so a bare rule is safe for them.
 [Oo]bj/
 [Ll]ibrary/
 [Tt]emp/
@@ -49,6 +48,16 @@ yarn-error.log*
 *.pdb
 *.mdb
 *.dll
+
+# bin/ is NOT ignored wholesale: this repository has a source directory called
+# apps/cli/bin/, and an unanchored [Bb]in/ rule silently excluded the CLI's entry
+# point from every commit. A fresh clone therefore had no `utool` at all, which is
+# exactly the failure a repository migration would expose. Only build output named
+# bin/ is ignored, and only where it is generated.
+tools/csharp-check/bin/
+tools/csharp-check/obj/
+frontends/**/bin/
+frontends/**/obj/
 
 # --- scratch ----------------------------------------------------------------
 scratch/

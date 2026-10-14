@@ -10,7 +10,7 @@
  * archives never pays for, or depends on, an engine package.
  */
 
-import { createCoreContainerRegistry } from '@unitydevcommonlib/utool-core';
+import { createCoreContainerRegistry } from '@devcattoolregistry/utool-core';
 
 /**
  * Known adapters, by engine name. Each entry lazily imports its package.
@@ -60,7 +60,7 @@ export async function loadAdapter(engine) {
  *   adapter is an error, which is right for the PRIMARY engine: the user asked to
  *   install into an engine this build cannot serve, and proceeding with another
  *   engine's bytes would be wrong.
- * @returns {Promise<{containers: import('@unitydevcommonlib/utool-core').ContainerRegistry, adapters: Map<string, object>, unavailable: Map<string, string>}>}
+ * @returns {Promise<{containers: import('@devcattoolregistry/utool-core').ContainerRegistry, adapters: Map<string, object>, unavailable: Map<string, string>}>}
  */
 export async function loadAdapters(engines, options = {}) {
   const containers = createCoreContainerRegistry();

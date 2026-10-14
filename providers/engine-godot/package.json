@@ -13,6 +13,6 @@
     "node": ">=20.11"
   },
   "dependencies": {
-    "@unitydevcommonlib/utool-core": "*"
+    "@devcattoolregistry/utool-core": "*"
   }
 }

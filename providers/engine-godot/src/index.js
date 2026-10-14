@@ -14,7 +14,7 @@
  * Either way the core is untouched.
  */
 
-import { compareVersions } from '@unitydevcommonlib/utool-core';
+import { compareVersions } from '@devcattoolregistry/utool-core';
 
 export const ENGINE = 'godot';
 

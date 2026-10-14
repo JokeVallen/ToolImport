@@ -1,5 +1,5 @@
 {
-  "name": "@unitydevcommonlib/import-cli",
+  "name": "@devcattoolregistry/import-cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,6 +12,6 @@
     "node": ">=20.11"
   },
   "dependencies": {
-    "@unitydevcommonlib/utool-core": "*"
+    "@devcattoolregistry/utool-core": "*"
   }
 }

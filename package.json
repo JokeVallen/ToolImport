@@ -16,8 +16,9 @@
     "frontends/*"
   ],
   "scripts": {
-    "test": "node --test \"packages/utool-core/test/*.test.js\" \"apps/cli/test/*.test.js\"",
+    "test": "node tools/check-tracked.mjs && node --test \"packages/utool-core/test/*.test.js\" \"apps/cli/test/*.test.js\"",
     "check:csharp": "node tools/csharp-check.mjs",
+    "check:tracked": "node tools/check-tracked.mjs",
     "cli": "node apps/cli/bin/utool.js",
     "validate": "node apps/cli/bin/utool.js validate ../DevCatToolRegistry"
   },
