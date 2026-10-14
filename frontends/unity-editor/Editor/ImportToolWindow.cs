@@ -27,13 +27,41 @@ namespace DevCat.ToolImport.Editor
             "https://raw.githubusercontent.com/JokeVallen/DevCatToolRegistry/main";
 
         /// <summary>
-        /// Engines this front end offers. Unity first because this is the Unity
-        /// editor; the others exist so a cross-engine tool's second target is
-        /// visible and installable from here rather than hidden.
+        /// Engines this front end offers.
         /// </summary>
-        private static readonly string[] CandidateEngines = { "unity", "godot" };
+        /// <remarks>
+        /// Unity only. This window IS the Unity editor: offering another engine let a
+        /// user install a Godot plugin into a Unity project, which "succeeded" because
+        /// the backend is deliberately engine-agnostic and takes the engine from the
+        /// caller. The backend still supports several engines -- that is what the
+        /// adapter split is for, and a Godot front end or a shell can pass its own --
+        /// but a UI may only offer what it can honour.
+        /// </remarks>
+        private static readonly string[] CandidateEngines = { "unity" };
 
-        private readonly List<AvailableTool> tools = new List<AvailableTool>();
+        /// <summary>
+        /// The registry listing, shared across window instances for this editor session.
+        /// </summary>
+        /// <remarks>
+        /// Unity destroys an EditorWindow when it is closed, so per-instance state is
+        /// lost and every reopen demanded Refresh, then re-select, then Verify again.
+        /// The listing is a property of the REGISTRY, not of the window, so caching it
+        /// per session is both correct and what a user expects.
+        ///
+        /// It is a list of what is available, not a plan: nothing is written and no
+        /// artifact is fetched until Install. An explicit Refresh still re-reads the
+        /// registry, so a stale cache is one click from correct rather than a trap.
+        /// A domain reload (script recompile, entering play mode) clears it, which is
+        /// also when the registry is most likely to have changed.
+        /// </remarks>
+        private static List<AvailableTool> cachedTools;
+        private static string cachedRegistryLocator = string.Empty;
+
+        private List<AvailableTool> tools
+        {
+            get { return cachedTools ?? (cachedTools = new List<AvailableTool>()); }
+        }
+
         private Vector2 listScroll;
         private Vector2 detailScroll;
         private string selectedId = string.Empty;
@@ -58,6 +86,20 @@ namespace DevCat.ToolImport.Editor
         private void OnEnable()
         {
             registryLocator = ResolveRegistryLocator();
+
+            // Show the cached listing immediately, and refresh in the background when
+            // there is nothing cached yet. On a reopen this is instant and silent; on a
+            // first open it fills itself instead of showing an empty pane that says
+            // "press Refresh".
+            if (cachedTools != null && cachedTools.Count > 0)
+            {
+                statusMessage = string.Format("Registry: {0} - {1} tool(s).", registryLocator, cachedTools.Count);
+            }
+            else
+            {
+                statusMessage = "Loading the registry...";
+                Refresh();
+            }
         }
 
         private void OnGUI()
@@ -105,19 +147,24 @@ namespace DevCat.ToolImport.Editor
             // unity is the default, but the backend is engine-agnostic and a tool
             // may target several engines. Choosing one here is what makes a
             // cross-engine tool's other targets visible instead of invisible.
-            GUILayout.Label("Engine:", EditorStyles.miniLabel, GUILayout.Width(48f));
-            foreach (string engine in CandidateEngines)
+            // The engine selector appears only when there is a choice to make. With a
+            // single engine it was a control that could only do harm.
+            if (CandidateEngines.Length > 1)
             {
-                bool active = engine == EngineName;
-                if (GUILayout.Toggle(active, engine, EditorStyles.toolbarButton, GUILayout.Width(60f)) && !active)
+                GUILayout.Label("Engine:", EditorStyles.miniLabel, GUILayout.Width(48f));
+                foreach (string engine in CandidateEngines)
                 {
-                    EngineName = engine;
-                    // The selection is engine-specific, so the plan from the other
-                    // engine must not be shown as if it still applied.
-                    planRecords = null;
-                    if (!string.IsNullOrEmpty(selectedId))
+                    bool active = engine == EngineName;
+                    if (GUILayout.Toggle(active, engine, EditorStyles.toolbarButton, GUILayout.Width(60f)) && !active)
                     {
-                        Select(selectedId);
+                        EngineName = engine;
+                        // The selection is engine-specific, so the plan from the other
+                        // engine must not be shown as if it still applied.
+                        planRecords = null;
+                        if (!string.IsNullOrEmpty(selectedId))
+                        {
+                            Select(selectedId);
+                        }
                     }
                 }
             }
@@ -389,11 +436,16 @@ namespace DevCat.ToolImport.Editor
         {
             Run("list", records =>
             {
-                tools.Clear();
+                var loaded = new List<AvailableTool>();
                 foreach (string[] fields in records.Of("TOOL"))
                 {
-                    tools.Add(AvailableTool.FromFields(fields));
+                    loaded.Add(AvailableTool.FromFields(fields));
                 }
+
+                // Publish only after the call succeeded, so a failed refresh cannot
+                // replace a good listing with an empty one.
+                cachedTools = loaded;
+                cachedRegistryLocator = registryLocator;
                 statusMessage = string.Format("Registry: {0} - {1} tool(s).", registryLocator, tools.Count);
             });
         }

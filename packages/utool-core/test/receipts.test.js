@@ -398,3 +398,65 @@ test('uninstall never removes Assets itself, and tidies only empty directories',
   assert.ok(existsSync(path.join(project, 'Assets/Editor')), 'Assets/Editor must survive');
   assert.ok(!existsSync(path.join(project, 'Assets/Editor/Demo')), 'the now-empty tool folder is tidied');
 });
+
+test('uninstall clears Unity .meta leftovers so the folder does not come back', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await store.write(
+    baseReceipt({
+      toolId: 'demo',
+      version: '1.0.0',
+      artifactSha256: 'e'.repeat(64),
+      installedFiles: ['Assets/Demo/Thing.cs'],
+    }),
+  );
+
+  // Unity's real layout: a .meta beside EVERY asset and EVERY folder.
+  await mkdir(path.join(project, 'Assets/Demo'), { recursive: true });
+  await writeFile(path.join(project, 'Assets/Demo/Thing.cs'), 'x', 'utf8');
+  await writeFile(path.join(project, 'Assets/Demo/Thing.cs.meta'), 'MonoImporter', 'utf8');
+  await writeFile(path.join(project, 'Assets/Demo.meta'), 'folderAsset: yes', 'utf8');
+  await writeFile(path.join(project, 'Assets.meta'), 'folderAsset: yes', 'utf8');
+
+  const plan = await store.planUninstall(['demo']);
+  await store.executeUninstall(plan, { projectRoot: project, receiptStore: store, toolIds: ['demo'] });
+
+  // A folder's own .meta is Unity's record of a folder it will re-create on the next
+  // Refresh, so leaving it behind would resurrect the directory.
+  assert.ok(!existsSync(path.join(project, 'Assets/Demo')), 'the tool folder is gone');
+  assert.ok(!existsSync(path.join(project, 'Assets/Demo.meta')), "the folder's own .meta is gone");
+  assert.ok(!existsSync(path.join(project, 'Assets/Demo/Thing.cs.meta')), 'the asset .meta is gone');
+  // Assets is not the tool's to remove, and neither is its .meta.
+  assert.ok(existsSync(path.join(project, 'Assets')), 'Assets survives');
+  assert.ok(existsSync(path.join(project, 'Assets.meta')), "Assets' own .meta survives");
+});
+
+test('uninstall keeps a directory that still holds real work', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await store.write(
+    baseReceipt({
+      toolId: 'demo',
+      version: '1.0.0',
+      artifactSha256: 'f'.repeat(64),
+      installedFiles: ['Assets/Demo/Thing.cs'],
+    }),
+  );
+
+  await mkdir(path.join(project, 'Assets/Demo'), { recursive: true });
+  await writeFile(path.join(project, 'Assets/Demo/Thing.cs'), 'x', 'utf8');
+  // The user's own file, plus Unity's .meta for it. Not a stray: something real is here.
+  await writeFile(path.join(project, 'Assets/Demo/Mine.cs'), 'mine', 'utf8');
+  await writeFile(path.join(project, 'Assets/Demo/Mine.cs.meta'), 'MonoImporter', 'utf8');
+
+  const plan = await store.planUninstall(['demo']);
+  await store.executeUninstall(plan, { projectRoot: project, receiptStore: store, toolIds: ['demo'] });
+
+  assert.ok(existsSync(path.join(project, 'Assets/Demo/Mine.cs')), 'the user file survives');
+  assert.ok(existsSync(path.join(project, 'Assets/Demo/Mine.cs.meta')), 'its .meta survives too');
+  assert.ok(existsSync(path.join(project, 'Assets/Demo')), 'so the directory stays');
+});

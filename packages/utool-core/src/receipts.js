@@ -337,12 +337,32 @@ export class ReceiptStore {
         !protectedPaths.has(current)
       ) {
         try {
+          // Unity writes a `.meta` beside every asset AND every folder it imports.
+          // Those are not in the receipt, because the installer never wrote them.
+          //
+          // Two leftovers result, and they need different handling:
+          //
+          //   Core/Guard.cs.meta   inside the folder, from the file we just deleted
+          //   Core.meta            BESIDE the folder, and this is the one that matters
+          //
+          // A folder's own `.meta` is Unity's record of a folder it will re-create on
+          // the next Refresh. That is why an "emptied" directory came back. So a
+          // directory is removed when it holds nothing but `.meta` leftovers, and its
+          // sibling `.meta` goes with it.
           const entries = await readdir(current);
-          if (entries.length > 0) break;
+          const strays = entries.filter((entry) => entry.endsWith('.meta'));
+          if (entries.length > strays.length) break;
+          for (const stray of strays) {
+            await rm(path.join(current, stray), { force: true });
+          }
+
           // rmdir, NOT rm: `rm` refuses a directory without `recursive`, and
           // `recursive` here would delete work the user put in it. The emptiness
           // check above is what makes this safe, so only an EMPTY directory goes.
           await rmdir(current);
+
+          // The folder's own .meta sits next to it, not inside it.
+          await rm(`${current}.meta`, { force: true });
           directories.push(path.relative(root, current).replace(/\\/g, '/'));
         } catch {
           break;

@@ -87,13 +87,25 @@ test('installing a cross-engine tool writes each engine to its own location', re
     );
   }
 
-  // And spot-check the two locations the manifest actually declares.
-  assert.ok(existsSync(path.join(project, 'Assets/Runtime/Core/Guard.cs')), 'unity target');
+  // And spot-check the two locations the manifest actually declares. Each engine
+  // installs into its OWN tool-named directory: a payload that scattered into
+  // shared folders such as Assets/Runtime and Assets/Editor would spread one tool
+  // across the project, so "the files this tool owns" would stop being definable.
+  assert.ok(existsSync(path.join(project, 'Assets/CoreEditorUtils/Runtime/Core/Guard.cs')), 'unity target');
   assert.ok(
     existsSync(path.join(project, 'addons/core_utils/plugin.cfg')),
     'godot target must land under its contentRoot',
   );
   assert.equal(outcome.installed.length, 2, 'one install per engine');
+
+  // Self-containment, stated as the property rather than as one literal path: every
+  // installed file sits under a single directory named for the tool.
+  const roots = new Set(
+    receipts[0].installedFiles.map((file) => file.split('/').slice(0, 2).join('/')),
+  );
+  assert.equal(roots.size, 2, `one root per engine, got: ${[...roots].join(', ')}`);
+  assert.ok([...roots].includes('Assets/CoreEditorUtils'), 'the unity root is tool-named');
+  assert.ok([...roots].includes('addons/core_utils'), 'the godot root is tool-named');
 });
 
 test('a receipt lets the payload be removed with no residue', registryTest(), async (t) => {
