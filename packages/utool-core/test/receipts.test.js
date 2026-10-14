@@ -460,3 +460,92 @@ test('uninstall keeps a directory that still holds real work', async (t) => {
   assert.ok(existsSync(path.join(project, 'Assets/Demo/Mine.cs.meta')), 'its .meta survives too');
   assert.ok(existsSync(path.join(project, 'Assets/Demo')), 'so the directory stays');
 });
+
+test('a dependency another installed tool still needs is reported as blocking', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  // The library was pulled in BY the consumer, which records exactly that.
+  await store.write(
+    baseReceipt({
+      toolId: 'lib',
+      version: '1.0.0',
+      artifactSha256: 'a'.repeat(64),
+      installedFiles: ['Assets/Lib/Thing.cs'],
+      installedByTools: ['consumer'],
+    }),
+  );
+  await store.write(
+    baseReceipt({
+      toolId: 'consumer',
+      version: '1.0.0',
+      artifactSha256: 'b'.repeat(64),
+      installedFiles: ['Assets/Consumer/Thing.cs'],
+      installedByTools: ['user'],
+    }),
+  );
+
+  const blocked = await store.blockedByDependents(['lib']);
+  assert.deepEqual(blocked, [{ tool: 'lib', stillNeededBy: ['consumer'] }]);
+
+  // Removing BOTH is fine: the dependent goes too, so nothing is left broken.
+  assert.deepEqual(await store.blockedByDependents(['lib', 'consumer']), []);
+  // A tool the user installed directly is never "still needed".
+  assert.deepEqual(await store.blockedByDependents(['consumer']), []);
+});
+
+test('a dependency is no longer blocking once its consumer is gone', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  // `installedByTools` names a tool that is NOT installed - the consumer was
+  // already removed. Refusing here would make the library unremovable forever.
+  await store.write(
+    baseReceipt({
+      toolId: 'lib',
+      version: '1.0.0',
+      artifactSha256: 'c'.repeat(64),
+      installedFiles: ['Assets/Lib/Thing.cs'],
+      installedByTools: ['already-gone'],
+    }),
+  );
+
+  assert.deepEqual(await store.blockedByDependents(['lib']), []);
+});
+
+test('a dependency left with no consumer is reported as orphaned, not deleted', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await store.write(
+    baseReceipt({
+      toolId: 'lib',
+      version: '1.0.0',
+      artifactSha256: 'd'.repeat(64),
+      installedFiles: ['Assets/Lib/Thing.cs'],
+      installedByTools: ['consumer'],
+    }),
+  );
+  await store.write(
+    baseReceipt({
+      toolId: 'consumer',
+      version: '1.0.0',
+      artifactSha256: 'e'.repeat(64),
+      installedFiles: ['Assets/Consumer/Thing.cs'],
+      installedByTools: ['user'],
+    }),
+  );
+
+  // Removing the consumer orphans the library...
+  assert.deepEqual(await store.orphanedAfter(['consumer']), ['lib']);
+  // ...but orphaned means REPORTED. Nothing is removed until asked.
+  const plan = await store.planUninstall(['consumer']);
+  assert.deepEqual(plan.delete, ['Assets/Consumer/Thing.cs']);
+  assert.ok(!plan.delete.includes('Assets/Lib/Thing.cs'), 'the orphan is not swept up');
+
+  // A tool the user installed directly is never an orphan.
+  assert.deepEqual(await store.orphanedAfter(['lib']), []);
+});

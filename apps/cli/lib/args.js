@@ -11,6 +11,7 @@
 const BOOLEAN_FLAGS = new Set([
   'auto-provider',
   'dry-run',
+  'force',
   'json',
   'records',
   'quiet',

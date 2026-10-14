@@ -61,6 +61,8 @@ Commands
   verify <id...>                    verify artifacts without writing anything
   install <id...>                   install tools into a Unity project
   uninstall <id...>                 remove tools recorded by their receipts
+                                    refuses when another installed tool still
+                                    depends on one; --force overrides that
   rollback <id...>                  report the version pointer for installed tools
   status                            list what the project has installed
   validate [<registry>]             validate a registry (CI gate)
@@ -506,11 +508,54 @@ async function cmdUninstall({ flags, positionals }) {
   const store = new ReceiptStore(projectRoot);
   const plan = await store.planUninstall(positionals);
 
+  // Would this break something that is still installed?
+  //
+  // Removing a library another tool depends on leaves that tool in place and broken:
+  // it compiles only until something references the missing API, and often keeps
+  // "working" until it does not. Nothing about that is visible without asking, which
+  // is why this is checked rather than left to the user to notice.
+  //
+  // Refusing by default, with --force as the way through, matches how the rest of
+  // this tool treats a destructive action: say what will break, and make the user
+  // confirm deliberately.
+  const blocked = flags.force ? [] : await store.blockedByDependents(positionals);
+  const orphaned = await store.orphanedAfter(positionals);
+
+  if (blocked.length > 0) {
+    if (inRecords(flags)) {
+      for (const entry of blocked) {
+        rec.record('PROBLEM', [
+          'E-DEP-REQUIRED',
+          `${entry.tool} is still needed by ${entry.stillNeededBy.join(', ')}`,
+        ]);
+      }
+      rec.record('RESULT', ['ok', 'false', 'exitCode', String(EXIT.USAGE)]);
+      return EXIT.USAGE;
+    }
+    if (flags.json) {
+      out.json({ ok: false, project: projectRoot, blocked, ...plan });
+      return EXIT.USAGE;
+    }
+
+    out.heading(`Cannot uninstall from ${projectRoot}`);
+    for (const entry of blocked) {
+      out.line(`${entry.tool} is still needed by: ${entry.stillNeededBy.join(', ')}`);
+    }
+    out.line('');
+    out.line('Removing it would leave those tools installed but broken.');
+    out.line('');
+    out.line('Options:');
+    out.line('  uninstall the dependents first, then this tool');
+    out.line('  utool uninstall ' + blocked.map((e) => e.tool).join(' ') + ' --force   (leaves them broken)');
+    return EXIT.USAGE;
+  }
+
   if (flags.json) {
     out.json({
       ok: plan.missingReceipts.length === 0,
       dryRun: Boolean(flags.dryRun),
       project: projectRoot,
+      orphaned,
       ...plan,
     });
   } else {
@@ -584,6 +629,15 @@ async function cmdUninstall({ flags, positionals }) {
       out.line('');
       out.line(`receipt(s) cleared: ${outcome.receipts.join(', ')}`);
     }
+
+    // Mention a dependency that nothing needs any more, without removing it. A tool
+    // the user did not name should never disappear because of an uninstall they did
+    // ask for; naming it here is enough for them to decide.
+    if (orphaned.length > 0 && !flags.force) {
+      out.line('');
+      out.line(`no longer needed by anything installed: ${orphaned.join(', ')}`);
+      out.line(`  remove with: utool uninstall ${orphaned.join(' ')}`);
+    }
   }
 
   return outcome.failed.length === 0 ? EXIT.OK : EXIT.FAILURE;
@@ -600,7 +654,19 @@ async function cmdStatus({ flags }) {
   }
 
   if (flags.json) {
-    out.json({ ok: true, project: projectRoot, count: receipts.length, receipts });
+    out.json({
+      ok: true,
+      project: projectRoot,
+      count: receipts.length,
+      // Relationships, so they are visible BEFORE an uninstall is attempted rather
+      // than only when one is refused.
+      relationships: receipts.map((receipt) => ({
+        toolId: receipt.toolId,
+        neededBy: (receipt.installedByTools ?? []).filter((id) => id !== 'user'),
+        dependsOn: receipt.dependencies ?? [],
+      })),
+      receipts,
+    });
   } else {
     out.heading(`Installed in ${projectRoot}`);
     if (receipts.length === 0) {
@@ -616,6 +682,26 @@ async function cmdStatus({ flags }) {
           String((receipt.installedFiles ?? []).length),
         ]),
       );
+
+      // Why each tool is here. A dependency pulled in automatically looks identical
+      // to one the user chose in the table above, and that distinction decides
+      // whether removing it is safe.
+      const hasRelationships = receipts.some((receipt) =>
+        (receipt.installedByTools ?? []).some((id) => id !== 'user'),
+      );
+
+      if (hasRelationships) {
+        out.line('');
+        out.line('why each tool is installed:');
+        for (const receipt of receipts) {
+          const by = (receipt.installedByTools ?? []).filter((id) => id !== 'user');
+          out.line(
+            by.length > 0
+              ? `  ${receipt.toolId}  <- required by ${by.join(', ')}`
+              : `  ${receipt.toolId}  <- you asked for it`,
+          );
+        }
+      }
     }
   }
   return EXIT.OK;

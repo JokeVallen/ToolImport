@@ -256,10 +256,22 @@ namespace DevCat.ToolImport.Editor
             // The window deliberately does not name requirement keys: which keys
             // exist is the engine adapter's business, so it prints whatever the
             // backend reports and stays correct when an adapter adds one.
+            //
+            // Only THIS engine's targets are shown. The backend reports every engine a
+            // tool declares, which is right for a shell that can install into any of
+            // them; this window is the Unity editor and can install into Unity only.
+            // Listing a Godot target invited exactly the confusion it caused - it read
+            // as "this project has a Godot target" and led to selecting godot and
+            // installing a Godot plugin into a Unity project. A cross-engine tool still
+            // reports its other targets through `utool show`.
             var targets = new List<ToolTargetInfo>();
             foreach (string[] fields in detailRecords.Of("TARGET"))
             {
-                targets.Add(ToolTargetInfo.FromFields(fields));
+                ToolTargetInfo target = ToolTargetInfo.FromFields(fields);
+                if (target.Engine == EngineName)
+                {
+                    targets.Add(target);
+                }
             }
 
             if (targets.Count > 0)
@@ -268,8 +280,7 @@ namespace DevCat.ToolImport.Editor
                 EditorGUILayout.LabelField("Targets", EditorStyles.boldLabel);
                 foreach (ToolTargetInfo target in targets)
                 {
-                    string marker = target.Engine == EngineName ? "> " : "  ";
-                    EditorGUILayout.LabelField(
+                    string marker = target.Engine == EngineName ? "> " : "  ";                    EditorGUILayout.LabelField(
                         marker + target.Engine + "  (" + target.ArtifactType +
                         (string.IsNullOrEmpty(target.ArtifactFormat) ? string.Empty : "/" + target.ArtifactFormat) +
                         ")", EditorStyles.boldLabel);
@@ -299,6 +310,20 @@ namespace DevCat.ToolImport.Editor
                     {
                         EditorGUILayout.LabelField("    editor-only: excluded from player builds");
                     }
+                }
+
+                // State the cross-engine fact without offering it as an action. Hiding
+                // it entirely would be its own kind of lie: a tool really does ship
+                // another engine's target, and a user comparing `utool show` output
+                // against this window would otherwise see a discrepancy and trust
+                // neither.
+                string otherEngines = OtherEngines(detailRecords);
+                if (!string.IsNullOrEmpty(otherEngines))
+                {
+                    EditorGUILayout.LabelField(
+                        "Also ships a target for: " + otherEngines +
+                        " (not installable here - this window installs into " + EngineName + ").",
+                        EditorStyles.wordWrappedMiniLabel);
                 }
             }
 
@@ -372,6 +397,28 @@ namespace DevCat.ToolImport.Editor
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
+        }
+
+        /// <summary>
+        /// Engines this tool declares that this window cannot install into.
+        /// </summary>
+        /// <remarks>
+        /// Reported, never offered. The distinction matters: the previous UI listed the
+        /// Godot target with a selectable engine toggle, which read as an invitation and
+        /// let a Godot plugin be installed into a Unity project.
+        /// </remarks>
+        private string OtherEngines(BackendRecords records)
+        {
+            var others = new List<string>();
+            foreach (string[] fields in records.Of("TARGET"))
+            {
+                if (fields.Length > 0 && fields[0] != EngineName && !others.Contains(fields[0]))
+                {
+                    others.Add(fields[0]);
+                }
+            }
+            others.Sort();
+            return string.Join(", ", others.ToArray());
         }
 
         /// <summary>Render the plan and its verification outcome.</summary>

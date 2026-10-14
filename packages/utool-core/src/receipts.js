@@ -171,6 +171,66 @@ export class ReceiptStore {
   }
 
   /**
+   * Which installed tools still need a tool that is about to be removed?
+   *
+   * Derived from the receipts, not from the registry. A receipt records
+   * `installedByTools`: the ids that caused this tool to be pulled in. If one of
+   * those is still installed, removing this tool breaks it.
+   *
+   * Reading local state matters here. The registry says a tool *may* be depended on;
+   * the receipts say it *is*, in THIS project. Only the second is a reason to refuse.
+   *
+   * @param {string[]} toolIds tools being removed
+   * @returns {Promise<{tool: string, stillNeededBy: string[]}[]>} one entry per blocked tool
+   */
+  async blockedByDependents(toolIds) {
+    const all = await this.list();
+    const going = new Set(toolIds);
+    const blocked = [];
+
+    for (const id of toolIds) {
+      const receipt = all.find((entry) => entry.toolId === id);
+      if (!receipt) continue;
+
+      // `['user']` means the user asked for it directly, so nothing depends on it.
+      const dependents = (receipt.installedByTools ?? []).filter(
+        (dependent) => dependent !== 'user' && !going.has(dependent) && all.some((e) => e.toolId === dependent),
+      );
+
+      if (dependents.length > 0) {
+        blocked.push({ tool: id, stillNeededBy: [...new Set(dependents)].sort() });
+      }
+    }
+    return blocked;
+  }
+
+  /**
+   * Tools that would become orphaned if `toolIds` were removed.
+   *
+   * The inverse of the above: a dependency pulled in automatically whose last
+   * dependent is going away. Nothing is removed automatically - this only reports,
+   * so the user can decide in the same breath as the uninstall they asked for.
+   *
+   * @param {string[]} toolIds
+   * @returns {Promise<string[]>} tool ids, sorted
+   */
+  async orphanedAfter(toolIds) {
+    const all = await this.list();
+    const going = new Set(toolIds);
+    const orphans = [];
+
+    for (const receipt of all) {
+      if (going.has(receipt.toolId)) continue;
+      const dependents = (receipt.installedByTools ?? []).filter((id) => id !== 'user');
+      // Only a tool that was pulled in FOR something can be orphaned by that
+      // something leaving; a user-installed tool is never "orphaned".
+      if (dependents.length === 0) continue;
+      if (dependents.every((id) => going.has(id))) orphans.push(receipt.toolId);
+    }
+    return orphans.sort();
+  }
+
+  /**
    * Plan an uninstall.
    *
    * A file is shared when more than one receipt claims it, so it survives until
