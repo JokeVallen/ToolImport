@@ -27,19 +27,6 @@ namespace DevCat.ToolImport.Editor
             "https://raw.githubusercontent.com/JokeVallen/DevCatToolRegistry/main";
 
         /// <summary>
-        /// Engines this front end offers.
-        /// </summary>
-        /// <remarks>
-        /// Unity only. This window IS the Unity editor: offering another engine let a
-        /// user install a Godot plugin into a Unity project, which "succeeded" because
-        /// the backend is deliberately engine-agnostic and takes the engine from the
-        /// caller. The backend still supports several engines -- that is what the
-        /// adapter split is for, and a Godot front end or a shell can pass its own --
-        /// but a UI may only offer what it can honour.
-        /// </remarks>
-        private static readonly string[] CandidateEngines = { "unity" };
-
-        /// <summary>
         /// The registry listing, shared across window instances for this editor session.
         /// </summary>
         /// <remarks>
@@ -112,6 +99,16 @@ namespace DevCat.ToolImport.Editor
         private ToolFilter filterInstalledOnly;
         private int filterSourceCount = -1;
 
+        /// <summary>
+        /// One command waiting for the in-flight one to finish.
+        /// </summary>
+        /// <remarks>
+        /// Single-slot on purpose. A queue would let a burst of clicks pile up commands
+        /// that are stale by the time they run; keeping only the newest is both simpler
+        /// and closer to what the user meant.
+        /// </remarks>
+        private Action queuedCommand;
+
         /// <summary>Engine to install into; chosen in the toolbar.</summary>
         private string EngineName = "unity";
 
@@ -153,8 +150,10 @@ namespace DevCat.ToolImport.Editor
         /// Re-read which tools this project has installed.
         /// </summary>
         /// <param name="then">
-        /// Run after the scan completes. Used to sequence a follow-up command, because
-        /// Run serialises on a single busy flag.
+        /// Queued to run after this call finishes. It CANNOT be invoked directly from the
+        /// callback: the callback runs while Run still holds `busy`, so a direct call would
+        /// be dropped -- which is exactly the bug that left the window on "Loading the
+        /// registry...".
         /// </param>
         private void RefreshInstalled(Action then = null)
         {
@@ -169,7 +168,7 @@ namespace DevCat.ToolImport.Editor
                 // Without this an install would not appear under "Installed" until the
                 // search text changed.
                 filteredTools = null;
-                if (then != null) then();
+                QueueCommand(then);
             });
         }
 
@@ -296,31 +295,16 @@ namespace DevCat.ToolImport.Editor
                 registryLocator = ResolveRegistryLocator();
             }
 
-            // Which engine to install into. This front end is the Unity one, so
-            // unity is the default, but the backend is engine-agnostic and a tool
-            // may target several engines. Choosing one here is what makes a
-            // cross-engine tool's other targets visible instead of invisible.
-            // The engine selector appears only when there is a choice to make. With a
-            // single engine it was a control that could only do harm.
-            if (CandidateEngines.Length > 1)
-            {
-                GUILayout.Label("Engine:", EditorStyles.miniLabel, GUILayout.Width(48f));
-                foreach (string engine in CandidateEngines)
-                {
-                    bool active = engine == EngineName;
-                    if (GUILayout.Toggle(active, engine, EditorStyles.toolbarButton, GUILayout.Width(60f)) && !active)
-                    {
-                        EngineName = engine;
-                        // The selection is engine-specific, so the plan from the other
-                        // engine must not be shown as if it still applied.
-                        planRecords = null;
-                        if (!string.IsNullOrEmpty(selectedId))
-                        {
-                            Select(selectedId);
-                        }
-                    }
-                }
-            }
+            // The engine is shown, not chosen. This window IS the Unity editor, so there
+            // is no other engine it could honour -- the selector that used to sit here
+            // allowed a Godot payload to be installed into a Unity project, because the
+            // backend is engine-agnostic and takes the engine from its caller. A UI may
+            // only offer what it can honour.
+            //
+            // It is displayed rather than removed because the value is passed to the
+            // backend on every call, and a user comparing against `utool show` output
+            // should be able to see which engine this window speaks for.
+            GUILayout.Label("Engine: " + EngineName, EditorStyles.miniLabel, GUILayout.Width(90f));
 
             if (busy)
             {
@@ -838,7 +822,8 @@ namespace DevCat.ToolImport.Editor
                 }
                 statusMessage = string.Format("{0} tool(s) installed. Receipts recorded under Library/.", installed);
                 planRecords = null;
-                RefreshInstalled();
+                // Queued: calling this directly would hit Run while busy is still set.
+                QueueCommand(() => RefreshInstalled());
                 AssetDatabase.Refresh();
             });
         }
@@ -878,7 +863,8 @@ namespace DevCat.ToolImport.Editor
                     "{0} file(s) removed for {1}.", removed, selectedId);
                 detailRecords = null;
                 planRecords = null;
-                RefreshInstalled();
+                // Queued for the same reason as install.
+                QueueCommand(() => RefreshInstalled());
                 AssetDatabase.Refresh();
             });
         }
@@ -941,9 +927,44 @@ namespace DevCat.ToolImport.Editor
             }
             finally
             {
+                // Clear `busy` BEFORE repainting, and note that the callback above runs
+                // while it was still set.
+                //
+                // That is the whole reason the window hung on "Loading the registry...":
+                // a callback that starts another command ran while busy was true, so Run
+                // dropped it silently. Chaining calls through a callback only works if
+                // the callback runs ONCE THE PREVIOUS CALL IS FINISHED -- otherwise it is
+                // the same collision in a new shape.
+                //
+                // Callbacks that need to queue more work must therefore do it after this
+                // returns. `QueueCommand` exists for exactly that.
                 busy = false;
+                FlushQueue();
                 Repaint();
             }
+        }
+
+        /// <summary>
+        /// Run a command after the current one finishes.
+        /// </summary>
+        /// <remarks>
+        /// Necessary because `Run` refuses to start while `busy`, and a callback invoked
+        /// from inside `Run` still sees `busy == true`. Queuing defers the work to the
+        /// `finally` block, which is the first point at which starting a new command is
+        /// actually allowed.
+        /// </remarks>
+        private void QueueCommand(Action command)
+        {
+            if (command == null || queuedCommand != null) return;
+            queuedCommand = command;
+        }
+
+        /// <summary>Start whatever was queued, now that no command is in flight.</summary>
+        private void FlushQueue()
+        {
+            Action next = queuedCommand;
+            queuedCommand = null;
+            if (next != null) next();
         }
 
         /// <summary>
