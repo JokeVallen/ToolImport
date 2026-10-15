@@ -222,7 +222,20 @@ namespace DevCat.ToolImport.Editor
     internal sealed class AvailableTool
     {
         public string Id = string.Empty;
+
+        /// <summary>
+        /// The tool's latest published version - field 1 of the TOOL record.
+        /// </summary>
+        /// <remarks>
+        /// There is deliberately NO companion "is latest" flag here. TOOL carries exactly
+        /// one version, so such a flag could only ever be constant, and the record's
+        /// field 2 is `type`, not a version - reading it as one produced the literal
+        /// string "tool-library" in a version slot. Which versions exist, and which of
+        /// them is latest, is what VERSIONS records are for; this field is the single
+        /// version a summary line needs.
+        /// </remarks>
         public string Version = string.Empty;
+
         public string Type = string.Empty;
         public string Engines = string.Empty;
         public string Provides = string.Empty;

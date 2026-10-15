@@ -50,6 +50,8 @@ namespace CsharpCheck
             UnescapeHandlesTabAndNewline();
             SearchMatchesTheRightFields();
             ConstraintsArePutIntoWords();
+            ToolTypeIsNotAVersion();
+            VersionsCarryTheLatestMarker();
 
             Console.WriteLine(failures == 0
                 ? "record reader behaviour OK"
@@ -145,6 +147,74 @@ namespace CsharpCheck
             Check("escaped newline is restored", BackendRecords.Unescape("a\\nb") == "a\nb");
             Check("escaped backslash is restored", BackendRecords.Unescape("a\\\\b") == "a\\b");
             Check("plain text is untouched", BackendRecords.Unescape("Assets/Guard.cs") == "Assets/Guard.cs");
+        }
+
+        /// <summary>
+        /// The regression behind "the version list never appeared".
+        ///
+        /// The details pane read a version out of TOOL field 2, which is not a version at
+        /// all -- it is `type`. The value therefore became the literal string
+        /// "tool-library", and because it was then compared against "latest" it never
+        /// matched, so no version was ever marked.
+        ///
+        /// This stream is verbatim `utool list --records` output.
+        /// </summary>
+        private static void ToolTypeIsNotAVersion()
+        {
+            BackendRecords records = BackendRecords.Parse(
+                "TOOL\tlibs-sharp-json\t3.0.0\ttool-library\tunity\t" +
+                "data.json.serialization\t\tSharpJson\tjson,assembly\t\tpayloads/libs-sharp-json/tool.yaml\n");
+
+            AvailableTool tool = null;
+            foreach (string[] fields in records.Of("TOOL"))
+            {
+                tool = AvailableTool.FromFields(fields);
+            }
+
+            Check("a TOOL record arrives", tool != null);
+            if (tool == null) return;
+            Check("field 1 is the version", tool.Version == "3.0.0", tool.Version);
+            Check("field 2 is the type, NOT a version", tool.Type == "tool-library", tool.Type);
+            Check("the version is not the type", tool.Version != tool.Type,
+                "Version was read from the type field: " + tool.Version);
+        }
+
+        /// <summary>
+        /// VERSIONS is the only place that says which version is latest.
+        ///
+        /// It carries one record per published version, tagged explicitly. The details pane
+        /// must read it rather than trying to derive "latest" from the summary, which holds
+        /// a single version and cannot express the distinction at all.
+        /// </summary>
+        private static void VersionsCarryTheLatestMarker()
+        {
+            BackendRecords records = BackendRecords.Parse(
+                "TOOL\teditor-tool-selection-history\t1.0.0\teditor-tool\tunity\t" +
+                "unity.window.selection-history\tscript.api.argument-guards\tSelection History\t" +
+                "editor,workflow\tcore-editor-utils@^1.1.0\tpayloads/editor-tool-selection-history/tool.yaml\n" +
+                "VERSIONS\teditor-tool-selection-history\t1.0.0\tlatest\n" +
+                "VERSIONS\teditor-tool-selection-history\t0.9.0\t\n" +
+                "TOOL\tlibs-sharp-json\t3.0.0\ttool-library\tunity\t\t\tSharpJson\t\t\tpayloads/libs-sharp-json/tool.yaml\n" +
+                "VERSIONS\tlibs-sharp-json\t3.0.0\tlatest\n");
+
+            var mine = new List<string>();
+            string latest = string.Empty;
+            foreach (string[] fields in records.Of("VERSIONS"))
+            {
+                if (fields.Length < 2 || fields[0] != "editor-tool-selection-history") continue;
+                mine.Add(fields[1]);
+                if (fields.Length > 2 && fields[2] == "latest") latest = fields[1];
+            }
+
+            Check("both published versions are seen", mine.Count == 2, mine.Count.ToString());
+            Check("the older version is included", mine.Contains("0.9.0"), string.Join(",", mine.ToArray()));
+            Check("exactly one version is marked latest", latest == "1.0.0", latest);
+
+            // The filter is by id, so another tool's versions must not leak in. This is
+            // also why comparing whole field arrays would match nothing: the values differ
+            // per row even for the same tool.
+            Check("another tool's versions are excluded", !mine.Contains("3.0.0"),
+                string.Join(",", mine.ToArray()));
         }
 
         /// <summary>
