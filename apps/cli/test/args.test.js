@@ -54,6 +54,28 @@ test('a repeatable flag accumulates every occurrence', () => {
   assert.deepEqual(flags.alsoEngine, ['godot', 'unreal', 'defold']);
 });
 
+test('the list filters parse, and the engine filter is distinct from --engine', () => {
+  const { flags } = parseArgs([
+    'list',
+    '--tag', 'editor',
+    '--tag', 'workflow',
+    '--provides', 'script.api.argument-guards',
+    '--depends-on', 'core-editor-utils',
+    '--engine-filter', 'godot',
+    '--search', 'Editor',
+  ]);
+
+  assert.deepEqual(flags.tag, ['editor', 'workflow']);
+  assert.deepEqual(flags.provides, ['script.api.argument-guards']);
+  // A hyphenated flag must map to camelCase, or the filter would silently never apply.
+  assert.deepEqual(flags.dependsOn, ['core-editor-utils']);
+  // Two different questions: which engine to install into, versus which engines a tool
+  // supports. Collapsing them would make `list --engine godot` ambiguous.
+  assert.equal(flags.engineFilter, 'godot');
+  assert.equal(flags.engine, undefined);
+  assert.equal(flags.search, 'Editor');
+});
+
 test('a value flag with no value is reported as unknown, not silently emptied', () => {
   // '--registry' followed by another flag means someone forgot the value.
   const { flags, unknown } = parseArgs(['list', '--registry', '--json']);

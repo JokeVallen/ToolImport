@@ -69,6 +69,14 @@ Commands
   digest <file...>                  print size and sha256 ready to paste into a manifest
 
 Options
+  --tag <name>            list: only tools carrying this tag (repeatable, comma-separated)
+  --provides <capability> list: only tools PROVIDING this capability. Use it to answer
+                          "what can satisfy the capability this tool injects?"
+  --injects <capability>  list: only tools injecting this capability
+  --depends-on <id>       list: only tools depending on this tool
+  --type <type>           list: only tools of this type (tool-library, editor-tool, ...)
+  --engine-filter <name>  list: only tools supporting this engine
+  --search <text>         list: only tools whose DISPLAY NAME contains this text
   --version <v>           install this version of a tool instead of the default
   --registry <path|url>   registry location. Default: found automatically - the
                           conventional DevCatToolRegistry near the working
@@ -219,19 +227,61 @@ function cmdDigest({ positionals, flags }) {
 async function cmdList({ registryLocator, flags }) {
   const source = sourceFor(registryLocator, flags);
   const index = await source.fetchIndex();
-  const tools = index.tools ?? [];
+  const all = index.tools ?? [];
+
+  // Filtering server-side, in the backend rather than in each front end.
+  //
+  // A front end can filter the listing it already holds, and for the text box that is
+  // the right place (it is instant and needs no round trip). These filters are different:
+  // they answer questions about the WHOLE registry, including tools a front end has not
+  // fetched -- and `--provides` / `--injects` are how a user finds "what can satisfy the
+  // capability this tool needs" without opening every tool in turn.
+  const tools = applyListFilters(all, flags);
 
   if (inRecords(flags)) {
     rec.meta(source.describe);
     rec.toolSummaries(tools);
-    rec.record('RESULT', ['tools', String(tools.length)]);
+    rec.record('RESULT', [
+      'tools', String(tools.length),
+      'total', String(all.length),
+      'filtered', tools.length === all.length ? 'false' : 'true',
+    ]);
     return EXIT.OK;
   }
 
   if (flags.json) {
-    out.json({ ok: true, registry: source.describe, count: tools.length, tools });
+    out.json({
+      ok: true,
+      registry: source.describe,
+      count: tools.length,
+      total: all.length,
+      tools,
+    });
   } else {
     out.heading(`Registry ${source.describe}`);
+
+    // A reverse lookup is only useful with the answer, so when a `--provides` filter
+    // finds nothing, the capabilities that DO exist are listed. Guessing why a name
+    // matched nothing is otherwise the user's problem. Checked BEFORE the empty case,
+    // because "no tool matches" is exactly when the name is most likely misspelled.
+    const unknownCapabilities = [];
+    for (const wanted of splitFilter(flags.provides)) {
+      if (!all.some((tool) => (tool.provides ?? []).includes(wanted))) {
+        unknownCapabilities.push(wanted);
+      }
+    }
+
+    if (tools.length === 0) {
+      // Say WHICH empty this is, and how to undo it.
+      out.line(
+        all.length === 0
+          ? 'the registry lists no tools.'
+          : `no tool matches the filter (${all.length} in the registry). Drop a filter to widen the search.`,
+      );
+      printKnownCapabilities(all, unknownCapabilities);
+      return EXIT.OK;
+    }
+
     out.table(
       ['id', 'version', 'type', 'engines', 'displayName'],
       tools.map((tool) => [
@@ -247,9 +297,114 @@ async function cmdList({ registryLocator, flags }) {
       ]),
     );
     out.line('');
-    out.line(`${tools.length} tool(s). Use 'utool show <id>' for details.`);
+    out.line(
+      tools.length === all.length
+        ? `${tools.length} tool(s). Use 'utool show <id>' for details.`
+        : `${tools.length} of ${all.length} tool(s) match.`,
+    );
+
+    printKnownCapabilities(all, unknownCapabilities);
   }
   return EXIT.OK;
+}
+
+/**
+ * Name the capabilities the registry does provide, for a filter that matched nothing.
+ *
+ * Only printed when a `--provides` filter was used AND that exact name is absent, so a
+ * normal listing is never padded with a capability dump.
+ *
+ * @param {Array<Record<string, any>>} all every tool in the registry
+ * @param {string[]} unknown the capability names that matched nothing
+ */
+function printKnownCapabilities(all, unknown) {
+  if (!unknown || unknown.length === 0) return;
+
+  const known = [...new Set(all.flatMap((tool) => tool.provides ?? []))].sort();
+  for (const wanted of unknown) {
+    out.line('');
+    out.line(`nothing provides '${wanted}'.`);
+  }
+  if (known.length > 0) {
+    out.line('capabilities this registry does provide:');
+    for (const capability of known) out.line(`  ${capability}`);
+  }
+}
+
+/** Split a repeatable/comma-separated filter flag into values. */
+function splitFilter(value) {
+  if (!value) return [];
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .flatMap((entry) => String(entry).split(','))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Apply the `list` filters.
+ *
+ * Every filter is an AND, and each accepts a comma-separated list whose members are ORed
+ * within that filter. That is the combination users expect from a search box: "these tags,
+ * and this engine" rather than "either".
+ *
+ * Matching is case-insensitive for the free-text filters (tag, engine, type), because
+ * nobody should have to remember that a tag is lowercase. Capability names are compared
+ * exactly: they are a namespaced API contract, and `Unity.Window` really is a different
+ * identifier from `unity.window`.
+ *
+ * @param {Array<Record<string, any>>} tools
+ * @param {Record<string, any>} flags
+ */
+function applyListFilters(tools, flags) {
+  const tags = splitFilter(flags.tag).map((value) => value.toLowerCase());
+  const engines = splitFilter(flags.engineFilter).map((value) => value.toLowerCase());
+  const types = splitFilter(flags.type).map((value) => value.toLowerCase());
+  const provides = splitFilter(flags.provides);
+  const injects = splitFilter(flags.injects);
+  const dependencies = splitFilter(flags.dependsOn);
+  const text = flags.search ? String(flags.search).toLowerCase() : '';
+
+  return tools.filter((tool) => {
+    if (tags.length > 0) {
+      const own = (tool.tags ?? []).map((value) => value.toLowerCase());
+      if (!tags.some((value) => own.includes(value))) return false;
+    }
+
+    if (engines.length > 0) {
+      const own = (tool.engines ?? []).map((value) => value.toLowerCase());
+      if (!engines.some((value) => own.includes(value))) return false;
+    }
+
+    if (types.length > 0) {
+      if (!types.includes(String(tool.type ?? '').toLowerCase())) return false;
+    }
+
+    if (provides.length > 0) {
+      const own = tool.provides ?? [];
+      if (!provides.some((value) => own.includes(value))) return false;
+    }
+
+    if (injects.length > 0) {
+      const own = tool.injects ?? [];
+      if (!injects.some((value) => own.includes(value))) return false;
+    }
+
+    if (dependencies.length > 0) {
+      const own = (tool.dependencies ?? []).map((dep) => dep.id);
+      if (!dependencies.some((value) => own.includes(value))) return false;
+    }
+
+    if (text) {
+      // The DISPLAY NAME only, matching the front end's search box. Searching id, type
+      // and tags as well made "s" return a tool whose id begins with "libs", and a match
+      // the user cannot see on screen is indistinguishable from a bug.
+      const name = String(tool.displayName ?? '');
+      if (!name.toLowerCase().includes(text)) return false;
+    }
+
+    return true;
+  });
 }
 
 async function cmdShow({ registryLocator, flags, positionals }) {

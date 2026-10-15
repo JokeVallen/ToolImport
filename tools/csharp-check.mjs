@@ -84,7 +84,17 @@ async function main() {
     if (!process.argv.includes('--keep')) {
       await rm(generatedDir, { recursive: true, force: true });
     }
-    console.error('C# type-check FAILED. The errors above are in the real front-end sources.');
+    // Say WHICH side is wrong. A Unity type or member the front end uses but the stub
+    // does not declare produces a CS0117/CS0246 error in the generated copy, and blaming
+    // "the real front-end sources" for that sends the reader to fix innocent code. It has
+    // happened repeatedly while the front end grew.
+    console.error('C# type-check FAILED.');
+    console.error(
+      '  If the errors are CS0117/CS0246 about a UnityEditor or UnityEngine member, the\n' +
+        '  STUB is incomplete, not the front end: add the member to\n' +
+        '  tools/csharp-check/UnityStubs.cs (all of them are real Unity APIs).\n' +
+        '  Otherwise the errors are in the real front-end sources.',
+    );
     return build.status ?? 1;
   }
 

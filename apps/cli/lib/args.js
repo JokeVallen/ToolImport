@@ -28,7 +28,7 @@ const BOOLEAN_FLAGS = new Set([
  * overwrite itself, so `--also-engine godot --also-engine unreal` would silently
  * keep only the last engine, and `--mirror a --mirror b` only the last mirror.
  */
-const REPEATABLE_FLAGS = new Set(['also-engine', 'mirror']);
+const REPEATABLE_FLAGS = new Set(['also-engine', 'mirror', 'tag', 'provides', 'injects', 'depends-on']);
 
 /** @type {Record<string,string>} maps a flag to its canonical camelCase key */
 const KEY_ALIASES = {
@@ -37,6 +37,11 @@ const KEY_ALIASES = {
   'write-index': 'writeIndex',
   'host-unity': 'hostUnity',
   'host-dotnet': 'hostDotnet',
+  'depends-on': 'dependsOn',
+  // `--engine` already means "the engine to install into", which is a different question
+  // from "tools that support this engine". Reusing it would make `list --engine godot`
+  // ambiguous, so the LIST filter gets its own name.
+  'engine-filter': 'engineFilter',
 };
 
 /**

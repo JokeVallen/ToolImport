@@ -18,7 +18,26 @@ namespace UnityEngine
         public Vector2(float x, float y) { this.x = x; this.y = y; }
         public float width => x;
         public float height => y;
+
+        /// <summary>Component access by index, as Unity allows: v[0] and v[1].</summary>
+        public float this[int index]
+        {
+            get
+            {
+                if (index == 0) return x;
+                if (index == 1) return y;
+                throw new System.IndexOutOfRangeException($"Vector2 index {index} is out of range");
+            }
+            set
+            {
+                if (index == 0) { x = value; return; }
+                if (index == 1) { y = value; return; }
+                throw new System.IndexOutOfRangeException($"Vector2 index {index} is out of range");
+            }
+        }
+
         public static Vector2 operator -(Vector2 a, Vector2 b) => new Vector2(a.x - b.x, a.y - b.y);
+        public static Vector2 zero => new Vector2(0f, 0f);
     }
 
     public struct Rect
@@ -50,6 +69,7 @@ namespace UnityEngine
         public static void LogException(Exception e) { }
         public static void Log(object o) { }
         public static void LogWarning(object o) { }
+        public static void LogError(object o) { }
     }
 
     public static class Application
@@ -63,12 +83,27 @@ namespace UnityEngine
 
     public enum TextClipping { Overflow, Clip, Ellipsis }
 
+    /// <summary>Font weight and slant, as GUIStyle.fontStyle takes it.</summary>
+    public enum FontStyle { Normal, Bold, Italic, BoldAndItalic }
+
     public enum TextAnchor { UpperLeft, UpperCenter, UpperRight, MiddleLeft, MiddleCenter, MiddleRight, LowerLeft, LowerCenter, LowerRight }
 
     public class RectOffset
     {
+        public int left, right, top, bottom;
+
         public RectOffset() { }
-        public RectOffset(int left, int right, int top, int bottom) { }
+
+        public RectOffset(int left, int right, int top, int bottom)
+        {
+            this.left = left;
+            this.right = right;
+            this.top = top;
+            this.bottom = bottom;
+        }
+
+        public int horizontal => left + right;
+        public int vertical => top + bottom;
     }
 
     public class GUIStyleState
@@ -98,6 +133,13 @@ namespace UnityEngine
             value < min ? min : (value > max ? max : value);
         public static float Max(float a, float b) => a > b ? a : b;
         public static float Min(float a, float b) => a < b ? a : b;
+        /// <summary>
+        /// Unity's approximate float comparison. Mirrors the real tolerance, because a
+        /// stub that returned a plain equality would let a wrong epsilon pass here and
+        /// fail in the editor.
+        /// </summary>
+        public static bool Approximately(float a, float b) =>
+            System.Math.Abs(b - a) < System.Math.Max(1e-06f * System.Math.Max(System.Math.Abs(a), System.Math.Abs(b)), 1.1754944e-38f * 8f);
     }
 
     public class GUIStyle
@@ -114,6 +156,13 @@ namespace UnityEngine
         public bool wordWrap;
         public bool richText;
         public TextClipping clipping;
+        public FontStyle fontStyle;
+        /// <summary>Pixel nudge applied when drawing the content.</summary>
+        public Vector2 contentOffset;
+        /// <summary>Height of one line of text in this style.</summary>
+        public float lineHeight = 16f;
+        public bool stretchHeight;
+        public bool stretchWidth;
         public GUIStyleState normal = new GUIStyleState();
         public GUIStyleState hover = new GUIStyleState();
         public GUIStyleState active = new GUIStyleState();
@@ -133,7 +182,13 @@ namespace UnityEngine
         public static bool Toggle(bool value, string text, string style, params GUILayoutOption[] options) => value;
         public static void Label(string text, params GUILayoutOption[] options) { }
         public static void Label(string text, GUIStyle style, params GUILayoutOption[] options) { }
+        public static void Label(GUIContent content, GUIStyle style, params GUILayoutOption[] options) { }
+        public static void Label(GUIContent content, params GUILayoutOption[] options) { }
         public static void SelectableLabel(string text, GUIStyle style, params GUILayoutOption[] options) { }
+        public static void SelectableLabel(string text, params GUILayoutOption[] options) { }
+        public static bool LinkButton(string text) => false;
+        public static bool LinkButton(GUIContent content, GUIStyle style) => false;
+        public static bool LinkButton(GUIContent content) => false;
         public static GUILayoutOption MinHeight(float h) => new GUILayoutOption();
         public static void Space() { }
         public struct HorizontalScope : System.IDisposable
@@ -188,10 +243,18 @@ namespace UnityEngine
         public static void SetNextControlName(string name) { }
         public static void FocusControl(string name) { }
         public static Color color = new Color(1f, 1f, 1f, 1f);
+        public static GUISkin skin = new GUISkin();
         public static void Label(Rect rect, GUIContent content, GUIStyle style) { }
     }
 
     /// <summary>Rect reservation, used to draw a full-height column rule.</summary>
+    /// <summary>The active skin, for reaching built-in styles by name.</summary>
+    public class GUISkin
+    {
+        public GUIStyle label = new GUIStyle();
+        public GUIStyle GetStyle(string name) => new GUIStyle();
+    }
+
     public static class GUILayoutUtility
     {
         public static Rect GetRect(float width, float height, params GUILayoutOption[] options) =>
@@ -236,6 +299,7 @@ namespace UnityEditor
     public static class EditorGUILayout
     {
         public static void HelpBox(string message, MessageType type) { }
+        public static void HelpBox(string message, MessageType type, bool wide) { }
         public static void LabelField(string label, params GUILayoutOption[] options) { }
         public static void LabelField(string label, GUIStyle style, params GUILayoutOption[] options) { }
         public static string TextField(string text, GUIStyle style, params GUILayoutOption[] options) => text;
@@ -243,6 +307,10 @@ namespace UnityEditor
         public static int Popup(int selected, string[] options, GUIStyle style, params GUILayoutOption[] options2) => selected;
         public static int Popup(int selected, string[] options, params GUILayoutOption[] options2) => selected;
         public static void SelectableLabel(string text, GUIStyle style, params GUILayoutOption[] options) { }
+        public static void SelectableLabel(string text, params GUILayoutOption[] options) { }
+        public static bool LinkButton(string text) => false;
+        public static bool LinkButton(GUIContent content, GUIStyle style) => false;
+        public static bool LinkButton(GUIContent content) => false;
         public static GUILayoutOption MinHeight(float h) => new GUILayoutOption();
         public static void Space() { }
         public struct HorizontalScope : System.IDisposable
@@ -335,6 +403,20 @@ namespace UnityEditor
         public static float singleLineHeight = 18f;
         /// <summary>True on the dark skin. Drives the selection colours.</summary>
         public static bool isProSkin = true;
+        public static GUIContent TrTempContent(string text) => new GUIContent(text);
+        public static GUIContent TrTextContent(string text) => new GUIContent(text);
+        public static GUIContent TrTextContent(string text, string tooltip) => new GUIContent(text, tooltip);
+        public static GUIContent TrTextContent(string text, string tooltip, Texture2D icon) =>
+            new GUIContent(text, tooltip);
+        public static GUIContent TrTextContent(
+            string text, string tooltip, Texture2D icon, string fallbackText) => new GUIContent(text, tooltip);
+    }
+
+    /// <summary>Global IMGUI control state, used to drop focus.</summary>
+    public static class GUIUtility
+    {
+        public static int hotControl;
+        public static int keyboardControl;
     }
 
     public static class EditorGUI
