@@ -59,7 +59,7 @@ import { satisfies } from './semver.js';
  * @returns {Promise<ValidationResult>}
  */
 export async function validateRegistry(root, options) {
-  const { containers, schema = null, hash = true, onCheck } = options;
+  const { containers, schema = null, hash = true, onCheck, skipIndexCheck = false } = options;
   if (!containers) {
     throw new TypeError(
       'validateRegistry requires a container registry; build one with createCoreContainerRegistry() ' +
@@ -386,8 +386,18 @@ export async function validateRegistry(root, options) {
   }
 
   // --- index ------------------------------------------------------------
+  //
+  // `skipIndexCheck` exists because regenerating the index otherwise refuses to run:
+  // write-index validates first, and a stale index IS a validation error, so the one
+  // command that fixes staleness was blocked by staleness. The same applied to a brand
+  // new registry, where E-INDEX-MISSING made the index impossible to create at all.
+  //
+  // The check is still meaningful for `validate` and `check-index`, which are supposed
+  // to report it; only the command that REWRITES the file skips it.
   const indexPath = path.join(root, FILE_NAMES.INDEX);
-  if (!existsSync(indexPath)) {
+  if (skipIndexCheck) {
+    note(`${FILE_NAMES.INDEX} check skipped (regenerating)`);
+  } else if (!existsSync(indexPath)) {
     bag.error('E-INDEX-MISSING', `${FILE_NAMES.INDEX} is missing (run with --write-index)`);
   } else {
     try {

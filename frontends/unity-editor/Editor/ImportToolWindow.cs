@@ -66,6 +66,17 @@ namespace DevCat.ToolImport.Editor
         private string statusMessage = "Press Refresh to list the registry.";
         private BackendRecords detailRecords;
         private BackendRecords planRecords;
+
+        /// <summary>
+        /// Records from the last FAILED command, shown as an error panel.
+        /// </summary>
+        /// <remarks>
+        /// Separate from planRecords so a failure is never mistaken for a plan, and so it
+        /// survives until the next successful call. A user who replaces a payload by hand
+        /// must be able to see that the digest no longer matches, and what the two values
+        /// are -- the bottom status line is far too small for that.
+        /// </remarks>
+        private BackendRecords failureRecords;
         private bool busy;
 
         /// <summary>Free-text filter over the tool list.</summary>
@@ -250,26 +261,24 @@ namespace DevCat.ToolImport.Editor
         /// Does a tool match the search text?
         /// </summary>
         /// <remarks>
-        /// Searches id, display name, type and tags, case-insensitively, and matches on
-        /// SUBSTRING rather than prefix: someone looking for the JSON library types
-        /// "json", not "SharpJson". Every field searched is one the TOOL record already
-        /// carries, so search costs no extra backend call.
+        /// Matches the DISPLAY NAME only, case-insensitively, on a substring.
         ///
-        /// Internal rather than private so the behaviour tests can exercise it directly.
-        /// Filtering is the one piece of real logic in this window, and an untested
-        /// filter that silently matches nothing is indistinguishable from an empty
-        /// registry.
+        /// This used to search id, type, tags and provides as well, which produced results
+        /// that looked wrong: typing `s` returned "gITF Importer" because its id is
+        /// `libs-gltf-importer`. The match was real but invisible -- the id is not on
+        /// screen -- so the list appeared to ignore the query. A search that matches
+        /// something the user cannot see is indistinguishable from a bug, and the visible
+        /// name is what people search by.
+        ///
+        /// Filtering tags and capabilities has its own control, which is honest about what
+        /// it is filtering on. See ToolFilter.
         /// </remarks>
         internal static bool Matches(AvailableTool tool, string needle)
         {
             if (string.IsNullOrEmpty(needle)) return true;
-            string lower = needle.ToLowerInvariant();
-            string[] haystack = { tool.Id, tool.DisplayName, tool.Type, tool.Tags, tool.Provides };
-            foreach (string field in haystack)
-            {
-                if (!string.IsNullOrEmpty(field) && field.ToLowerInvariant().Contains(lower)) return true;
-            }
-            return false;
+            string name = tool.DisplayName;
+            if (string.IsNullOrEmpty(name)) return false;
+            return name.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         // ------------------------------------------------------------------
@@ -515,17 +524,12 @@ namespace DevCat.ToolImport.Editor
                         EditorGUILayout.LabelField(
                             "    upstream: " + target.ExternalUrl + " @ " + target.ExternalRef,
                             EditorStyles.wordWrappedLabel);
-                        // Warning, not Info, and worded as an action the user must take:
-                        // this is the one case where the tool is visible but unusable,
-                        // and "no artifact" is easy to skim past.
-                        EditorGUILayout.HelpBox(
-                            "NOT INSTALLABLE by this window.\n\n" +
-                            "This tool stores metadata only - no artifact lives in the registry. Its code " +
-                            "comes from the upstream source above at the pinned ref, so the backend reports " +
-                            "the target as caller-resolved and installs nothing.\n\n" +
-                            "Resolving it (cloning the source) is not implemented. Add it to the project " +
-                            "manually, or wait for that support.",
-                            MessageType.Warning);
+                        // Stated here as a FACT about the target; the actionable warning
+                        // sits next to the buttons. Saying it in both places read as two
+                        // problems rather than one.
+                        EditorGUILayout.LabelField(
+                            "    metadata only - no artifact is stored in the registry",
+                            EditorStyles.wordWrappedMiniLabel);
                     }
                     else if (!string.IsNullOrEmpty(target.ContentRoot))
                     {
@@ -562,8 +566,14 @@ namespace DevCat.ToolImport.Editor
             {
                 if (dependency.Length >= 4)
                 {
-                    dependencyLines.Add("  " + dependency[0] + " " + dependency[1] +
-                        " (" + dependency[2] + ")" +
+                    // Render the constraint in words. `^1.1.0` is semver shorthand that
+                    // means "1.1.0 or newer, same major" -- meaningful to a resolver and
+                    // opaque to the person deciding whether to install. The raw form is
+                    // kept in the tooltip so nothing is hidden from someone who wants it.
+                    string constraint = HumanConstraint(dependency[1]);
+                    dependencyLines.Add(
+                        "  " + dependency[0] + "  " + constraint +
+                        "  (" + dependency[2] + ")" +
                         (string.IsNullOrEmpty(dependency[3]) ? string.Empty : " - " + dependency[3]));
                 }
             }
@@ -592,6 +602,12 @@ namespace DevCat.ToolImport.Editor
                 }
             }
 
+            if (failureRecords != null)
+            {
+                EditorGUILayout.Space();
+                DrawFailures(failureRecords);
+            }
+
             if (planRecords != null)
             {
                 EditorGUILayout.Space();
@@ -603,18 +619,21 @@ namespace DevCat.ToolImport.Editor
             // Actions are kept outside the scroll view so they are always reachable.
             EditorGUILayout.Space();
 
-            // A tool whose target this build cannot actually install must not OFFER the
-            // action. The backend reports an external/git target as caller-resolved and
-            // installs nothing, so "Install" here would appear to succeed while writing
-            // no files -- the user's project is unchanged and nothing says so. Refusing
-            // up front, with the reason above, is the honest version.
+            // A tool whose target this build cannot install must not OFFER the action. The
+            // backend reports an external/git target as caller-resolved and installs
+            // nothing, so "Install" would appear to succeed while writing no files.
+            //
+            // The reason is stated ONCE, here, next to the disabled buttons -- the place a
+            // user is looking when they wonder why the button is greyed out. It used to be
+            // written twice (a full explanation in the Targets section and a second
+            // paragraph here), which read as two separate problems and buried the one fact
+            // that matters.
             bool installable = IsInstallableHere();
             if (!installable)
             {
+                string reason = UninstallableReason();
                 EditorGUILayout.HelpBox(
-                    "This tool cannot be installed by this window. See the note above for the reason.\n" +
-                    "The backend reports the target without resolving it, so installing it here would " +
-                    "appear to succeed while writing nothing.",
+                    "Cannot install this tool.\n\n" + reason,
                     MessageType.Warning);
             }
 
@@ -661,21 +680,128 @@ namespace DevCat.ToolImport.Editor
         /// </remarks>
         private bool IsInstallableHere()
         {
-            if (detailRecords == null) return false;
+            ToolTargetInfo mine = FindMyTarget();
+            return mine != null && !mine.IsExternal;
+        }
 
-            ToolTargetInfo mine = null;
+        /// <summary>
+        /// Why the install buttons are disabled, phrased for the user.
+        /// </summary>
+        /// <remarks>
+        /// One place produces this text, so the panel cannot drift out of step with the
+        /// buttons it explains.
+        /// </remarks>
+        private string UninstallableReason()
+        {
+            ToolTargetInfo mine = FindMyTarget();
+            if (mine == null)
+            {
+                return "This tool declares no target for " + EngineName + ".";
+            }
+            if (mine.IsExternal)
+            {
+                return
+                    "Its code lives in an upstream repository, not in the registry:\n" +
+                    mine.ExternalUrl + (string.IsNullOrEmpty(mine.ExternalRef) ? string.Empty : " @ " + mine.ExternalRef) +
+                    "\n\nThe backend reports this target without resolving it, so installing it here " +
+                    "would appear to succeed while writing nothing.\n\n" +
+                    "Add it to the project manually, or wait for external-source support.";
+            }
+            return "This tool cannot be installed by this window.";
+        }
+
+        /// <summary>This engine's target for the selected tool, or null.</summary>
+        private ToolTargetInfo FindMyTarget()
+        {
+            if (detailRecords == null) return null;
             foreach (string[] fields in detailRecords.Of("TARGET"))
             {
                 ToolTargetInfo candidate = ToolTargetInfo.FromFields(fields);
-                if (candidate.Engine == EngineName)
-                {
-                    mine = candidate;
-                    break;
-                }
+                if (candidate.Engine == EngineName) return candidate;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Render a failed command's problems.
+        /// </summary>
+        /// <remarks>
+        /// Selectable so the message can be copied out. A digest mismatch quotes two
+        /// 64-character hashes, and retyping those by hand is not something to ask of
+        /// anybody. The code is shown too, because it is what a bug report or a search
+        /// through the error-code reference needs.
+        /// </remarks>
+        private void DrawFailures(BackendRecords records)
+        {
+            List<string> problems = records.Problems();
+            EditorGUILayout.LabelField("Could not complete", EditorStyles.boldLabel);
+
+            if (problems.Count == 0)
+            {
+                EditorGUILayout.HelpBox(
+                    "The backend failed without reporting a reason.",
+                    MessageType.Error);
+                return;
             }
 
-            if (mine == null) return false;
-            return !mine.IsExternal;
+            foreach (string problem in problems)
+            {
+                // Problems arrive as "CODE\tmessage"; split so the code can be shown as
+                // the headline and the detail selectable underneath.
+                int separator = problem.IndexOf(':');
+                string code = separator > 0 ? problem.Substring(0, separator) : problem;
+                string message = separator > 0 ? problem.Substring(separator + 1).Trim() : string.Empty;
+
+                EditorGUILayout.HelpBox(code, MessageType.Error);
+                if (message.Length > 0)
+                {
+                    EditorGUILayout.SelectableLabel(
+                        message,
+                        EditorStyles.textArea,
+                        GUILayout.MinHeight(
+                            EditorStyles.textArea.CalcHeight(new GUIContent(message), position.width) + 4f));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Turn a version constraint into words a user can act on.
+        /// </summary>
+        /// <remarks>
+        /// `^1.1.0` and `~1.1.0` are semver notation. They belong in a manifest and in
+        /// resolver code; showing them raw in a UI asks the reader to know that `^` means
+        /// "same major, at least this" and `~` means "same major and minor". An empty
+        /// constraint means any version, which is also worth saying out loud.
+        /// </remarks>
+        internal static string HumanConstraint(string constraint)
+        {
+            if (string.IsNullOrEmpty(constraint)) return "any version";
+
+            string text = constraint.Trim();
+
+            // Two-character operators first: `>=1.2.0` must not be read as `>` applied to
+            // `=1.2.0`, which is what stripping one character unconditionally did.
+            if (text.StartsWith(">=")) return text.Substring(2) + " or newer";
+            if (text.StartsWith("<=")) return text.Substring(2) + " or older";
+
+            string version = text.Substring(1);
+
+            switch (text[0])
+            {
+                case '^':
+                    return version + " or newer (same major)";
+                case '~':
+                    return version + " or newer (same major.minor)";
+                case '>':
+                    return "newer than " + version;
+                case '<':
+                    return "older than " + version;
+                case '=':
+                    return "exactly " + version;
+                default:
+                    // A bare version is an exact requirement unless it is a range list.
+                    return text.Contains(" ") ? text : "exactly " + text;
+            }
         }
 
         /// <summary>
@@ -908,16 +1034,20 @@ namespace DevCat.ToolImport.Editor
                 {
                     List<string> problems = records.Problems();
                     statusMessage = problems.Count > 0
-                        ? problems[0]
+                        ? string.Format("{0} problem(s). See the panel.", problems.Count)
                         : (string.IsNullOrEmpty(result.StdErr) ? "Backend failed." : result.StdErr);
-                    if (problems.Count > 0)
-                    {
-                        // Keep the problems visible in the details pane.
-                        planRecords = records;
-                    }
+
+                    // Keep the problems visible in the details pane. Showing only
+                    // problems[0] in the bottom status line meant a failed verification
+                    // reported "Backend failed." with no reason anywhere -- and the reason
+                    // is the only part a user can act on.
+                    failureRecords = records;
                     return;
                 }
 
+                // A successful call clears a previous failure, or a stale error would sit
+                // in the panel contradicting the list beside it.
+                failureRecords = null;
                 onSuccess(records);
             }
             catch (Exception exception)

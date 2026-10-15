@@ -56,7 +56,7 @@ namespace UnityEngine
 
     public enum MessageType { None, Info, Warning, Error }
 
-    public class GUIStyle { }
+    public class GUIStyle { public float CalcHeight(GUIContent c, float w) => 40f; }
     public class GUILayoutOption { }
 
     public static class GUILayout
@@ -69,6 +69,8 @@ namespace UnityEngine
         public static bool Toggle(bool value, string text, string style, params GUILayoutOption[] options) => value;
         public static void Label(string text, params GUILayoutOption[] options) { }
         public static void Label(string text, GUIStyle style, params GUILayoutOption[] options) { }
+        public static void SelectableLabel(string text, GUIStyle style, params GUILayoutOption[] options) { }
+        public static GUILayoutOption MinHeight(float h) => new GUILayoutOption();
         public static void Space() { }
         public static void BeginHorizontal(params GUILayoutOption[] options) { }
         public static void BeginHorizontal(GUIStyle style, params GUILayoutOption[] options) { }
@@ -116,6 +118,7 @@ namespace UnityEngine
         public static GUIStyle toolbarTextField = new GUIStyle();
         public static GUIStyle toolbarSearchField = new GUIStyle();
         public static GUIStyle toolbarPopup = new GUIStyle();
+        public static GUIStyle textArea = new GUIStyle();
     }
 }
 
@@ -140,6 +143,8 @@ namespace UnityEditor
         public static void LabelField(string label, GUIStyle style, params GUILayoutOption[] options) { }
         public static string TextField(string text, GUIStyle style, params GUILayoutOption[] options) => text;
         public static int Popup(int selected, string[] options, GUIStyle style, params GUILayoutOption[] options2) => selected;
+        public static void SelectableLabel(string text, GUIStyle style, params GUILayoutOption[] options) { }
+        public static GUILayoutOption MinHeight(float h) => new GUILayoutOption();
         public static void Space() { }
         public static void BeginHorizontal(params GUILayoutOption[] options) { }
         public static void BeginHorizontal(GUIStyle style, params GUILayoutOption[] options) { }

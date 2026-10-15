@@ -28,7 +28,8 @@ namespace DevCat.ToolImport.Editor
     internal static class CliRunner
     {
         /// <summary>Environment variable that overrides the CLI location.</summary>
-        internal const string CliPathVariable = "UTOOL_CLI";
+        internal const string CLI_PATH = "UTOOL_CLI";
+        internal const string NODE = "UTOOL_NODE";
 
         /// <summary>Result of one CLI invocation.</summary>
         internal sealed class CliResult
@@ -36,10 +37,8 @@ namespace DevCat.ToolImport.Editor
             public int ExitCode;
             public string StdOut = string.Empty;
             public string StdErr = string.Empty;
-
-            public bool Ok => ExitCode == 0 && string.IsNullOrEmpty(StdErr);
-
-            public string Message => string.IsNullOrEmpty(StdErr) ? StdOut : StdErr;
+            public bool Ok { get { return ExitCode == 0 && string.IsNullOrEmpty(StdErr); } }
+            public string Message { get { return string.IsNullOrEmpty(StdErr) ? StdOut : StdErr; } }
         }
 
         /// <summary>
@@ -55,7 +54,7 @@ namespace DevCat.ToolImport.Editor
         /// </remarks>
         internal static string ResolveCliPath()
         {
-            string fromEnvironment = Environment.GetEnvironmentVariable(CliPathVariable);
+            string fromEnvironment = Environment.GetEnvironmentVariable(CLI_PATH);
             if (!string.IsNullOrEmpty(fromEnvironment) && File.Exists(fromEnvironment))
             {
                 return fromEnvironment;
@@ -65,14 +64,8 @@ namespace DevCat.ToolImport.Editor
             var directory = new DirectoryInfo(UnityEngine.Application.dataPath);
             for (int depth = 0; directory != null && depth < 6; depth++)
             {
-                string candidate = Path.Combine(
-                    directory.FullName,
-                    "UnityToolImport", "apps", "cli", "bin", "utool.js");
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-
+                string candidate = Path.Combine(directory.FullName, "UnityToolImport", "apps", "cli", "bin", "utool.js");
+                if (File.Exists(candidate)) return candidate;
                 directory = directory.Parent;
             }
 
@@ -82,7 +75,7 @@ namespace DevCat.ToolImport.Editor
         /// <summary>Locate the Node executable.</summary>
         internal static string ResolveNodePath()
         {
-            string fromEnvironment = Environment.GetEnvironmentVariable("UTOOL_NODE");
+            string fromEnvironment = Environment.GetEnvironmentVariable(NODE);
             if (!string.IsNullOrEmpty(fromEnvironment) && File.Exists(fromEnvironment))
             {
                 return fromEnvironment;
@@ -106,7 +99,7 @@ namespace DevCat.ToolImport.Editor
                     ExitCode = 127,
                     StdErr =
                         "The utool backend CLI was not found.\n" +
-                        "Set the " + CliPathVariable + " environment variable to the absolute path of " +
+                        $"Set the '{CLI_PATH}' environment variable to the absolute path of " +
                         "apps/cli/bin/utool.js, or place a UnityToolImport checkout " +
                         "beside this project.",
                 });
@@ -159,7 +152,7 @@ namespace DevCat.ToolImport.Editor
                 catch (Exception exception)
                 {
                     result.ExitCode = 1;
-                    result.StdErr = "Failed to start the backend CLI: " + exception.Message;
+                    result.StdErr = $"Failed to start the backend CLI: {exception.Message}";
                 }
 
                 return result;

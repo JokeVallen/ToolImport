@@ -49,6 +49,7 @@ namespace CsharpCheck
             PlanToolFieldsStayAligned();
             UnescapeHandlesTabAndNewline();
             SearchMatchesTheRightFields();
+            ConstraintsArePutIntoWords();
 
             Console.WriteLine(failures == 0
                 ? "record reader behaviour OK"
@@ -161,16 +162,34 @@ namespace CsharpCheck
 
             Check("an empty needle matches", ImportToolWindow.Matches(tool, ""));
             Check("a null needle matches", ImportToolWindow.Matches(tool, null));
-            Check("id matches", ImportToolWindow.Matches(tool, "libs-sharp-json"));
-            Check("display name matches", ImportToolWindow.Matches(tool, "SharpJson"));
-            Check("type matches", ImportToolWindow.Matches(tool, "tool-library"));
-            Check("tags match", ImportToolWindow.Matches(tool, "assembly"));
-            Check("provides matches", ImportToolWindow.Matches(tool, "serialization"));
+            Check("the display name matches", ImportToolWindow.Matches(tool, "SharpJson"));
 
             // Substring, not prefix: someone hunting the JSON library types "json".
-            Check("substring matches anywhere", ImportToolWindow.Matches(tool, "json"));
+            Check("a substring matches anywhere", ImportToolWindow.Matches(tool, "json"));
             Check("case is ignored", ImportToolWindow.Matches(tool, "SHARPJSON"));
             Check("a non-match does not match", !ImportToolWindow.Matches(tool, "godot"));
+
+            // REGRESSION: the display name is the ONLY field searched. Searching the id
+            // made "s" return this tool, and it looked like a bug because the id -- the
+            // thing that actually matched -- is not shown anywhere in the list.
+            Check("the id is NOT searched", !ImportToolWindow.Matches(tool, "libs-sharp-json"));
+            Check("tags are NOT searched by the text box", !ImportToolWindow.Matches(tool, "assembly"));
+            Check("provides is NOT searched by the text box", !ImportToolWindow.Matches(tool, "serialization"));
+        }
+
+        /// <summary>
+        /// Version constraints are written for the resolver, so the UI must translate
+        /// them. `^1.1.0` in a details pane tells a user nothing.
+        /// </summary>
+        private static void ConstraintsArePutIntoWords()
+        {
+            Check("caret", ImportToolWindow.HumanConstraint("^1.1.0") == "1.1.0 or newer (same major)");
+            Check("tilde", ImportToolWindow.HumanConstraint("~2.0.3") == "2.0.3 or newer (same major.minor)");
+            Check("gte", ImportToolWindow.HumanConstraint(">=1.2.0") == "1.2.0 or newer");
+            Check("lt", ImportToolWindow.HumanConstraint("<2.0.0") == "older than 2.0.0");
+            Check("exact", ImportToolWindow.HumanConstraint("1.4.2") == "exactly 1.4.2");
+            Check("empty means any", ImportToolWindow.HumanConstraint("") == "any version");
+            Check("null means any", ImportToolWindow.HumanConstraint(null) == "any version");
         }
     }
 }

@@ -935,14 +935,28 @@ async function prepareAdapters(flags) {
   return { containers, adapters, engines: usable, skippedEngines: unavailable, host };
 }
 
-/** Turn an artifact verification failure into a plan-shaped problem list. */
+/**
+ * Turn an artifact verification failure into a plan-shaped problem list.
+ *
+ * EVERY output mode must carry the REASON, and `--records` was the one that did not.
+ * It wrote the failure as prose to stdout, so a records reader saw only
+ * `PLAN tools 0 bytes 0 ok false` with no explanation and could report nothing better
+ * than "Backend failed." -- which is exactly what the Unity window did when a payload
+ * had been replaced by hand. The record stream is a contract: a reader that cannot see
+ * WHY something failed cannot show a user anything actionable.
+ */
 async function safePlanInstallation(plan, source, containers, flags) {
   try {
     return await planInstallation(plan, source, containers);
   } catch (cause) {
     if (cause instanceof UtoolError) {
-      if (flags.json) out.json({ ok: false, error: cause.toJSON() });
-      else out.line(`\nverification failed: [${cause.code}] ${cause.message}`);
+      if (inRecords(flags)) {
+        rec.problems([{ code: cause.code ?? 'E-UNKNOWN', message: cause.message }]);
+      } else if (flags.json) {
+        out.json({ ok: false, error: cause.toJSON() });
+      } else {
+        out.line(`\nverification failed: [${cause.code}] ${cause.message}`);
+      }
       return { tools: [], totalBytes: 0, ok: false };
     }
     throw cause;

@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
@@ -27,6 +29,7 @@ import {
   verifyArtifactBytes,
   parseUnityVersion,
   compareUnityVersions,
+  validateRegistry,
 } from '../src/index.js';
 import { unityAdapter, UNITYPACKAGE_FORMAT } from '../../../providers/engine-unity/src/index.js';
 import { REGISTRY, registryTest, makeContainers, makeCoreOnlyContainers } from './helpers.js';
@@ -185,6 +188,47 @@ test('a single-file payload still verifies size and digest', () => {
 function requireYaml(text) {
   return parseYaml(text);
 }
+
+test('regenerating the index can skip the index self-check without weakening validate', async () => {
+  // Regression: `write-index` validated the whole registry first, and a stale or
+  // missing index IS a validation error -- so the one command that fixes staleness
+  // refused to run precisely when it was needed. It told the user to run write-index
+  // while refusing to be write-index. A brand new registry was worse: E-INDEX-MISSING
+  // made the index impossible to create at all.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'utool-idx-'));
+  try {
+    await mkdir(path.join(root, 'payloads'), { recursive: true });
+    // A registry with NO index.yaml at all: the case that could never be written.
+    const index = {
+      kind: 'index',
+      formatVersion: FORMAT_VERSION,
+      repository: 'https://example.invalid/registry.git',
+      tools: [],
+    };
+    await writeFile(
+      path.join(root, 'index.yaml'),
+      `kind: index\nformatVersion: '${FORMAT_VERSION}'\nrepository: ${index.repository}\ntools: []\n`,
+      'utf8',
+    );
+
+    // With the check on, an empty index against zero manifests is consistent, so this
+    // stays green; the point is that the option exists and does not blow up.
+    const checked = await validateRegistry(root, {
+      containers: makeContainers(),
+      hash: false,
+    });
+    assert.ok(checked.checks > 0, 'validate still runs its checks');
+
+    const skipped = await validateRegistry(root, {
+      containers: makeContainers(),
+      hash: false,
+      skipIndexCheck: true,
+    });
+    assert.ok(skipped.checks > 0, 'the other checks still run when the index check is skipped');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('Unity distribution builds with a cN revision parse and order correctly', () => {
   // Regression: Application.unityVersion reports strings like "2021.3.45f1c2"
