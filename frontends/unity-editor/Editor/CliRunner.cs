@@ -46,14 +46,24 @@ namespace DevCat.ToolImport.Editor
         /// </summary>
         /// <remarks>
         /// Resolution order:
-        ///   1. the UTOOL_CLI environment variable (an absolute path to the .js);
-        ///   2. a sibling checkout of the import-tool repository, which is how
+        ///   1. the settings window (EditorPrefs), which is what a user sets deliberately;
+        ///   2. the UTOOL_CLI environment variable (an absolute path to the .js);
+        ///   3. a sibling checkout of the import-tool repository, which is how
         ///      this is used during development.
-        /// Returns null when neither exists, so the UI can show an actionable
-        /// message instead of throwing from a menu callback.
+        ///
+        /// The settings window comes first because an environment variable is usually
+        /// inherited from a shell, and letting it silently override an explicit choice
+        /// would be baffling. Returns null when none exists, so the UI can show an
+        /// actionable message instead of throwing from a menu callback.
         /// </remarks>
         internal static string ResolveCliPath()
         {
+            string fromSettings = ReadPreference(ImportToolSettingsWindow.CliPrefKey);
+            if (!string.IsNullOrEmpty(fromSettings) && File.Exists(fromSettings))
+            {
+                return fromSettings;
+            }
+
             string fromEnvironment = Environment.GetEnvironmentVariable(CLI_PATH);
             if (!string.IsNullOrEmpty(fromEnvironment) && File.Exists(fromEnvironment))
             {
@@ -72,9 +82,34 @@ namespace DevCat.ToolImport.Editor
             return null;
         }
 
+        /// <summary>
+        /// Read an EditorPrefs value, tolerating a missing or corrupt one.
+        /// </summary>
+        /// <remarks>
+        /// A bad preference should fall through to the next resolution rule rather than
+        /// abort the lookup, which is why this never throws.
+        /// </remarks>
+        private static string ReadPreference(string key)
+        {
+            try
+            {
+                return UnityEditor.EditorPrefs.GetString(key, string.Empty);
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
         /// <summary>Locate the Node executable.</summary>
         internal static string ResolveNodePath()
         {
+            string fromSettings = ReadPreference(ImportToolSettingsWindow.NodePrefKey);
+            if (!string.IsNullOrEmpty(fromSettings) && File.Exists(fromSettings))
+            {
+                return fromSettings;
+            }
+
             string fromEnvironment = Environment.GetEnvironmentVariable(NODE);
             if (!string.IsNullOrEmpty(fromEnvironment) && File.Exists(fromEnvironment))
             {

@@ -28,6 +28,9 @@ namespace UnityEngine
         {
             this.x = x; this.y = y; this.width = width; this.height = height;
         }
+
+        public bool Contains(Vector2 point) =>
+            point.x >= x && point.x < x + width && point.y >= y && point.y < y + height;
     }
 
     public class Object { }
@@ -37,6 +40,7 @@ namespace UnityEngine
         public GUIContent() { }
         public GUIContent(string text) { }
         public GUIContent(string text, string tooltip) { }
+        public static GUIContent none = new GUIContent();
         public string text;
         public string tooltip;
     }
@@ -57,6 +61,8 @@ namespace UnityEngine
 
     public enum MessageType { None, Info, Warning, Error }
 
+    public enum TextClipping { Overflow, Clip, Ellipsis }
+
     public enum TextAnchor { UpperLeft, UpperCenter, UpperRight, MiddleLeft, MiddleCenter, MiddleRight, LowerLeft, LowerCenter, LowerRight }
 
     public class RectOffset
@@ -71,7 +77,13 @@ namespace UnityEngine
         public Texture2D background;
     }
 
-    public class Texture2D { }
+    public class Texture2D
+    {
+        public Texture2D() { }
+        public Texture2D(int width, int height) { }
+        public void SetPixel(int x, int y, Color color) { }
+        public void Apply() { }
+    }
 
     public struct Color
     {
@@ -101,6 +113,7 @@ namespace UnityEngine
         public float fixedHeight;
         public bool wordWrap;
         public bool richText;
+        public TextClipping clipping;
         public GUIStyleState normal = new GUIStyleState();
         public GUIStyleState hover = new GUIStyleState();
         public GUIStyleState active = new GUIStyleState();
@@ -143,6 +156,7 @@ namespace UnityEngine
         public static void EndVertical() { }
         public static GUILayoutOption Width(float w) => new GUILayoutOption();
         public static GUILayoutOption Height(float h) => new GUILayoutOption();
+        public static GUILayoutOption ExpandWidth(bool expand) => new GUILayoutOption();
         public static void Space(float pixels) { }
         public static GUILayoutOption ExpandHeight(bool e) => new GUILayoutOption();
         public static Vector2 BeginScrollView(Vector2 pos, params GUILayoutOption[] options) => pos;
@@ -157,6 +171,8 @@ namespace UnityEngine
     {
         public static Event current = new Event();
         public EventType type;
+        public int button;
+        public Vector2 mousePosition;
         public KeyCode keyCode;
         public void Use() { }
     }
@@ -171,6 +187,18 @@ namespace UnityEngine
         public static string GetNameOfFocusedControl() => string.Empty;
         public static void SetNextControlName(string name) { }
         public static void FocusControl(string name) { }
+        public static Color color = new Color(1f, 1f, 1f, 1f);
+        public static void Label(Rect rect, GUIContent content, GUIStyle style) { }
+    }
+
+    /// <summary>Rect reservation, used to draw a full-height column rule.</summary>
+    public static class GUILayoutUtility
+    {
+        public static Rect GetRect(float width, float height, params GUILayoutOption[] options) =>
+            new Rect(0f, 0f, width, height);
+
+        public static Rect GetRect(GUIContent content, GUIStyle style, params GUILayoutOption[] options) =>
+            new Rect(0f, 0f, 200f, 20f);
     }
 
     public static class EditorStyles
@@ -202,6 +230,7 @@ namespace UnityEditor
         public static T GetWindow<T>() where T : EditorWindow, new() => new T();
         public void Show() { }
         public void Repaint() { }
+        public void Close() { }
     }
 
     public static class EditorGUILayout
@@ -210,6 +239,7 @@ namespace UnityEditor
         public static void LabelField(string label, params GUILayoutOption[] options) { }
         public static void LabelField(string label, GUIStyle style, params GUILayoutOption[] options) { }
         public static string TextField(string text, GUIStyle style, params GUILayoutOption[] options) => text;
+        public static string TextField(string text, params GUILayoutOption[] options) => text;
         public static int Popup(int selected, string[] options, GUIStyle style, params GUILayoutOption[] options2) => selected;
         public static int Popup(int selected, string[] options, params GUILayoutOption[] options2) => selected;
         public static void SelectableLabel(string text, GUIStyle style, params GUILayoutOption[] options) { }
@@ -241,6 +271,8 @@ namespace UnityEditor
     public static class EditorUtility
     {
         public static bool DisplayDialog(string title, string message, string ok, string cancel) => false;
+        public static string OpenFolderPanel(string title, string folder, string defaultName) => string.Empty;
+        public static string OpenFilePanel(string title, string folder, string extension) => string.Empty;
     }
 
     public static class AssetDatabase
@@ -276,10 +308,33 @@ namespace UnityEditor
         public static void EraseString(string key) { Store.Remove(key); }
     }
 
-    /// <summary>Standard control heights and spacing, as the editor reports them.</summary>
+    /// <summary>
+    /// Per-user, per-machine settings storage.
+    /// </summary>
+    /// <remarks>
+    /// The window uses this for paths to a checkout, which belong to the machine rather
+    /// than to the project. The stub keeps them in memory.
+    /// </remarks>
+    public static class EditorPrefs
+    {
+        private static readonly Dictionary<string, string> Store = new Dictionary<string, string>();
+
+        public static string GetString(string key, string defaultValue) =>
+            Store.TryGetValue(key, out string value) ? value : defaultValue;
+
+        public static void SetString(string key, string value) { Store[key] = value; }
+
+        public static void DeleteKey(string key) { Store.Remove(key); }
+
+        public static bool HasKey(string key) => Store.ContainsKey(key);
+    }
+
+    /// <summary>Stand-in for EditorGUI.DisabledScope, used as `using (new ...)`.</summary>
     public static class EditorGUIUtility
     {
         public static float singleLineHeight = 18f;
+        /// <summary>True on the dark skin. Drives the selection colours.</summary>
+        public static bool isProSkin = true;
     }
 
     public static class EditorGUI

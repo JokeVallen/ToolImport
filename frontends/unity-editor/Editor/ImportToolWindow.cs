@@ -187,7 +187,7 @@ namespace DevCat.ToolImport.Editor
             // so doing it first costs nothing.
             if (cachedTools != null && cachedTools.Count > 0)
             {
-                statusMessage = string.Format("Registry: {0} - {1} tool(s).", registryLocator, cachedTools.Count);
+                statusMessage = "Ready.";
                 RefreshInstalled(RestoreSelection);
             }
             else
@@ -357,20 +357,25 @@ namespace DevCat.ToolImport.Editor
                 }
             }
 
-            GUILayout.Label("Registry:", EditorStyles.miniLabel, GUILayout.Width(56f));
-            registryLocator = EditorGUILayout.TextField(registryLocator, EditorStyles.toolbarTextField);
-            if (GUILayout.Button("Default", EditorStyles.toolbarButton, GUILayout.Width(60f)))
+            // The registry field is GONE from the toolbar; it lives in the settings window.
+            // Configuration competed with the tool list for horizontal room, and moving it
+            // out means a future setting cannot disturb this layout at all. What remains
+            // here is a READ-ONLY indication of which registry is in use, because that is
+            // worth knowing at a glance and costs one short label.
+            if (GUILayout.Button(RegistryLabel(), EditorStyles.toolbarButton))
             {
-                registryLocator = ResolveRegistryLocator();
+                ImportToolSettingsWindow.Open();
+            }
+
+            if (GUILayout.Button("Settings...", EditorStyles.toolbarButton, GUILayout.Width(74f)))
+            {
+                ImportToolSettingsWindow.Open();
             }
 
             // The engine is NOT shown. This window is the Unity editor and nothing else
             // could be installed from it, so "Engine: unity" told the user something they
             // already knew and spent toolbar width doing it. The value still goes to the
             // backend on every call; it simply is not news worth a label.
-            //
-            // (A cross-engine front end would need the label back, because it would have
-            // more than one possible value. This one never can.)
 
             if (busy)
             {
@@ -378,12 +383,59 @@ namespace DevCat.ToolImport.Editor
             }
 
             GUILayout.FlexibleSpace();
-            GUILayout.Label(
-                string.Format("{0} tool(s)", tools.Count),
-                EditorStyles.miniLabel,
-                GUILayout.Width(70f));
+
+            // Search lives here, at the right end of the toolbar. It was moved to the list
+            // column and moved back: the toolbar is where a user looks for a search box,
+            // and it keeps the list column for the list.
+            bool hadFocus = GUI.GetNameOfFocusedControl() == SearchControlName;
+            GUI.SetNextControlName(SearchControlName);
+            searchText = GUILayout.TextField(
+                searchText ?? string.Empty,
+                EditorStyles.toolbarSearchField,
+                GUILayout.Width(200f));
+            if (hadFocus && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
+            {
+                searchText = string.Empty;
+                GUI.FocusControl(null);
+                Event.current.Use();
+            }
 
             EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// A short, readable indication of the active registry.
+        /// </summary>
+        /// <remarks>
+        /// The toolbar showed the FULL path in an editable field, which for a deep checkout
+        /// pushed everything else off the row. This shows the leaf name and puts the full
+        /// value in the tooltip, so the row stays readable and the detail is still one
+        /// hover away.
+        /// </remarks>
+        private string RegistryLabel()
+        {
+            if (string.IsNullOrEmpty(registryLocator)) return "Registry: (none)";
+
+            // A URL has no useful leaf, so show its host; a path shows its last segment.
+            string leaf;
+            if (registryLocator.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Uri.TryCreate(registryLocator, UriKind.Absolute, out Uri uri)) leaf = uri.Host;
+                else leaf = registryLocator;
+            }
+            else
+            {
+                leaf = Path.GetFileName(registryLocator.TrimEnd('/', '\\'));
+                if (string.IsNullOrEmpty(leaf)) leaf = registryLocator;
+            }
+
+            return new GUIContent("Registry: " + leaf, registryLocator).text;
+        }
+
+        /// <summary>Re-read the registry location from the current settings.</summary>
+        private void ReloadRegistryLocator()
+        {
+            registryLocator = ResolveRegistryLocator();
         }
 
         // ------------------------------------------------------------------
@@ -391,13 +443,11 @@ namespace DevCat.ToolImport.Editor
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// The left column: a header row of controls, then the tool list.
+        /// The left column: a filter row, then the tool list.
         /// </summary>
         /// <remarks>
-        /// Search and filtering live here rather than in the toolbar because they act on
-        /// THIS list, and a control belongs next to what it changes. In the toolbar they
-        /// sat at the far right, visually detached from the rows they filtered, and the
-        /// column width available here is what the user is actually scanning.
+        /// The FILTER lives here because it acts on this list and reads as a heading over
+        /// it. The search box does not, and sits in the toolbar where one looks for it.
         /// </remarks>
         private void DrawToolList()
         {
@@ -431,6 +481,25 @@ namespace DevCat.ToolImport.Editor
 
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
+
+            // The vertical rule between the two columns. Without it the list and the
+            // details read as one wide pane, and it is not obvious where the list ends.
+            DrawColumnSeparator();
+        }
+
+        /// <summary>
+        /// A one-pixel vertical rule, drawn to the full height of the window.
+        /// </summary>
+        /// <remarks>
+        /// Uses a zero-width rect and expands its height, because a horizontal scope
+        /// gives no way to ask for "the rest of the vertical space" as a rectangle.
+        /// </remarks>
+        private void DrawColumnSeparator()
+        {
+            Rect rect = GUILayoutUtility.GetRect(1f, 1f, GUILayout.ExpandHeight(true));
+            rect.width = 1f;
+            EditorGUI.DrawRect(rect, SeparatorColor);
+            GUILayout.Space(1f);
         }
 
         /// <summary>Width of the left column, clamped so neither side becomes unusable.</summary>
@@ -439,28 +508,17 @@ namespace DevCat.ToolImport.Editor
             return Mathf.Clamp(position.width * 0.38f, 200f, 420f);
         }
 
-        /// <summary>Search and filter, laid out to the width of the list column.</summary>
+        /// <summary>
+        /// The filter row, laid out to the width of the list column.
+        /// </summary>
+        /// <remarks>
+        /// The "3/5" count appears HERE and nowhere else. It was also printed at the
+        /// toolbar's right end and repeated again in the status line, so the same number
+        /// appeared three times -- which reads as three separate facts and makes the
+        /// window look like it is padding itself out.
+        /// </remarks>
         private void DrawListControls()
         {
-            // Search on its own row, sized to the column, so a long tool name is not the
-            // only thing that fits. The placeholder makes the scope explicit: only the
-            // displayed name is searched.
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                bool hadFocus = GUI.GetNameOfFocusedControl() == SearchControlName;
-                GUI.SetNextControlName(SearchControlName);
-                searchText = GUILayout.TextField(
-                    searchText ?? string.Empty,
-                    EditorStyles.toolbarSearchField);
-
-                if (hadFocus && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
-                {
-                    searchText = string.Empty;
-                    GUI.FocusControl(null);
-                    Event.current.Use();
-                }
-            }
-
             using (new EditorGUILayout.HorizontalScope())
             {
                 // One choice from a list rather than independent toggles: two toggles can
@@ -477,11 +535,17 @@ namespace DevCat.ToolImport.Editor
                     filter = filterValues[chosen];
                 }
 
+                // "3/5" while filtering, "5" when the filter hides nothing. Showing the
+                // fraction when it is 5/5 is noise; showing only "5" while two rows are
+                // hidden would be a lie.
                 int shown = VisibleTools().Count;
                 GUILayout.Label(
-                    string.Format("{0}/{1}", shown, tools.Count),
+                    shown == tools.Count
+                        ? string.Format("{0}", tools.Count)
+                        : string.Format("{0} of {1}", shown, tools.Count),
                     EditorStyles.miniLabel,
-                    GUILayout.Width(44f));
+                    GUILayout.Width(70f));
+                GUILayout.FlexibleSpace();
             }
         }
 
@@ -519,24 +583,71 @@ namespace DevCat.ToolImport.Editor
             // worse than a click that is visibly unavailable.
             using (new EditorGUI.DisabledScope(busy))
             {
-                // A Label in a Selectable, not a Toggle styled as a button. A button
-                // draws its text CENTRED with padding, which made short and long names
-                // start at different x positions and read as a ragged block; every name
-                // must start at the same left edge in a list. It also stopped the row from
-                // looking like text, which is what it is.
-                if (GUILayout.Toggle(selected, label, RowStyle()) != selected)
+                // Reserve the row, then draw it explicitly: a fill for the state, then the
+                // text on top, then handle the click.
+                //
+                // This replaced GUILayout.Toggle with a Label-based style. A Toggle only
+                // draws a background when its style HAS one in the appropriate state, and
+                // a plain label style has none -- so copying "the built-in selection
+                // colours" copied null and the selected row was pixel-identical to every
+                // other row. Clicking a tool looked like it did nothing.
+                //
+                // Drawing the fill directly cannot depend on a style's internals, so it
+                // cannot silently regress the same way.
+                Rect row = GUILayoutUtility.GetRect(
+                    GUIContent.none, RowStyle(), GUILayout.ExpandWidth(true));
+                row.height = Mathf.Max(RowHeight, row.height);
+
+                if (Event.current.type == EventType.Repaint)
+                {
+                    if (selected)
+                    {
+                        EditorGUI.DrawRect(row, SelectionFill);
+                    }
+                    else if (row.Contains(Event.current.mousePosition))
+                    {
+                        EditorGUI.DrawRect(row, HoverFill);
+                    }
+                }
+
+                // The text is inset so the highlight has visible padding on the left, and
+                // so every name begins at the same x whatever the row's length.
+                var textRect = new Rect(
+                    row.x + 8f, row.y, Mathf.Max(0f, row.width - 12f), row.height);
+
+                Color previous = GUI.color;
+                GUI.color = selected ? SelectedTextColor : EditorStyles.label.normal.textColor;
+                GUI.Label(textRect, label, RowStyle());
+                GUI.color = previous;
+
+                if (Event.current.type == EventType.MouseDown
+                    && Event.current.button == 0
+                    && row.Contains(Event.current.mousePosition))
                 {
                     Select(tool.Id);
+                    Event.current.Use();
                 }
             }
         }
 
+        /// <summary>Fill behind the selected row.</summary>
+        private static readonly Color SelectionFill = new Color(0.24f, 0.37f, 0.55f, 1f);
+
+        /// <summary>Fill behind a hovered, unselected row: visible but clearly weaker.</summary>
+        private static readonly Color HoverFill = new Color(1f, 1f, 1f, 0.06f);
+
+        /// <summary>Text colour on the selection fill, chosen for contrast.</summary>
+        private static readonly Color SelectedTextColor = new Color(1f, 1f, 1f, 1f);
+
         /// <summary>
-        /// Style for one list row: left-aligned, with a selection highlight.
+        /// Style for one list row: left-aligned text.
         /// </summary>
         /// <remarks>
         /// Built once and cached. Constructing a GUIStyle per row per repaint is exactly
         /// the kind of allocation IMGUI punishes, since OnGUI runs several times a frame.
+        ///
+        /// It carries NO background: the row fill is drawn as a rect by DrawToolRow, which
+        /// is what makes the selected state reliable. See the note there.
         /// </remarks>
         private static GUIStyle RowStyle()
         {
@@ -545,25 +656,18 @@ namespace DevCat.ToolImport.Editor
                 rowStyle = new GUIStyle(EditorStyles.label)
                 {
                     alignment = TextAnchor.MiddleLeft,
-                    padding = new RectOffset(16, 4, 3, 3),
+                    padding = new RectOffset(0, 0, 2, 2),
                     fixedHeight = 0f,
                     wordWrap = false,
                     richText = false,
+                    clipping = TextClipping.Clip,
                 };
-                rowStyle.normal.textColor = EditorStyles.label.normal.textColor;
-                rowStyle.hover.textColor = EditorStyles.label.normal.textColor;
-                // The selected row needs a visible highlight; copies the built-in
-                // selection colours so it matches the rest of the editor.
-                rowStyle.onNormal = new GUIStyleState
-                {
-                    background = EditorStyles.label.onNormal.background,
-                    textColor = EditorStyles.label.onNormal.textColor,
-                };
-                rowStyle.onHover = rowStyle.onNormal;
-                rowStyle.onActive = rowStyle.onNormal;
             }
             return rowStyle;
         }
+
+        /// <summary>Height of one list row. Tall enough to click comfortably.</summary>
+        private const float RowHeight = 20f;
 
         private static GUIStyle rowStyle;
 
@@ -1305,7 +1409,10 @@ namespace DevCat.ToolImport.Editor
                 // VERSIONS records arrive with the listing, so they are kept here rather
                 // than fetched again when a row is selected.
                 versionRecords = records;
-                statusMessage = string.Format("Registry: {0} - {1} tool(s).", registryLocator, tools.Count);
+                // No count here: the number of tools is shown once, in the filter row.
+                // The status line is for the outcome of an ACTION, not for state that is
+                // already on screen.
+                statusMessage = "Ready.";
             });
         }
 
@@ -1512,7 +1619,38 @@ namespace DevCat.ToolImport.Editor
         /// the registry repository (how this is used while developing), then the
         /// published GitHub raw URL so a fresh clone of the tool just works.
         /// </remarks>
+        /// <summary>
+        /// Where to read the registry from.
+        /// </summary>
+        /// <remarks>
+        /// Order: the settings window, then the UTOOL_REGISTRY environment variable, then a
+        /// sibling checkout, then the published URL.
+        ///
+        /// The settings window comes FIRST because it is the one a user sets deliberately:
+        /// an environment variable is usually inherited from a shell, and a silent
+        /// override of an explicit choice would be baffling.
+        /// </remarks>
         private static string ResolveRegistryLocator()
+        {
+            string fromSettings = EditorPrefs.GetString(
+                ImportToolSettingsWindow.RegistryPrefKey, string.Empty);
+            if (!string.IsNullOrEmpty(fromSettings))
+            {
+                return fromSettings;
+            }
+
+            return ResolveRegistryLocatorForDisplay();
+        }
+
+        /// <summary>
+        /// The registry location the automatic rules produce, ignoring any override.
+        /// </summary>
+        /// <remarks>
+        /// Separated so the settings window can show what "automatic" actually resolves to
+        /// while an override is in force -- otherwise a user cannot tell whether clearing
+        /// the field would find anything.
+        /// </remarks>
+        internal static string ResolveRegistryLocatorForDisplay()
         {
             string fromEnvironment = Environment.GetEnvironmentVariable(RegistryPathVariable);
             if (!string.IsNullOrEmpty(fromEnvironment))
@@ -1532,6 +1670,21 @@ namespace DevCat.ToolImport.Editor
             }
 
             return DefaultRemoteRegistry;
+        }
+
+        /// <summary>
+        /// Drop the cached listing, so the next open re-reads the registry.
+        /// </summary>
+        /// <remarks>
+        /// Called when a setting changes. The cache is keyed on the tool count and the
+        /// filter, not on the registry location, so without this a changed registry would
+        /// keep showing the old tools until an explicit Refresh.
+        /// </remarks>
+        internal static void ForgetCachedListing()
+        {
+            cachedTools = null;
+            cachedRegistryLocator = string.Empty;
+            installedIds.Clear();
         }
     }
 }

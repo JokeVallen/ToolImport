@@ -38,6 +38,7 @@ const REQUIRED = [
   // because `npm run check:csharp` then failed on a clone AND blamed the front-end
   // sources, sending anyone who hit it to look in the wrong place.
   'frontends/unity-editor/Editor/ImportToolWindow.cs',
+  'frontends/unity-editor/Editor/ImportToolSettingsWindow.cs',
   'frontends/unity-editor/Editor/BackendRecords.cs',
   'frontends/unity-editor/Editor/CliRunner.cs',
   'tools/csharp-check.mjs',
