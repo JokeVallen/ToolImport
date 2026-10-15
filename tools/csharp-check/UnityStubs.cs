@@ -52,11 +52,62 @@ namespace UnityEngine
     {
         public static string dataPath => "/tmp/UnityProject/Assets";
         public static string unityVersion => "2021.3.5f1";
+        public static void OpenURL(string url) { }
     }
 
     public enum MessageType { None, Info, Warning, Error }
 
-    public class GUIStyle { public float CalcHeight(GUIContent c, float w) => 40f; }
+    public enum TextAnchor { UpperLeft, UpperCenter, UpperRight, MiddleLeft, MiddleCenter, MiddleRight, LowerLeft, LowerCenter, LowerRight }
+
+    public class RectOffset
+    {
+        public RectOffset() { }
+        public RectOffset(int left, int right, int top, int bottom) { }
+    }
+
+    public class GUIStyleState
+    {
+        public Color textColor;
+        public Texture2D background;
+    }
+
+    public class Texture2D { }
+
+    public struct Color
+    {
+        public float r, g, b, a;
+        public Color(float r, float g, float b) { this.r = r; this.g = g; this.b = b; this.a = 1f; }
+        public Color(float r, float g, float b, float a) { this.r = r; this.g = g; this.b = b; this.a = a; }
+    }
+
+    public static class Mathf
+    {
+        public static float Clamp(float value, float min, float max) =>
+            value < min ? min : (value > max ? max : value);
+        public static float Max(float a, float b) => a > b ? a : b;
+        public static float Min(float a, float b) => a < b ? a : b;
+    }
+
+    public class GUIStyle
+    {
+        public GUIStyle() { }
+        public GUIStyle(GUIStyle other) { }
+        public float CalcHeight(GUIContent c, float w) => 40f;
+        public Vector2 CalcSize(GUIContent c) => new Vector2(60f, 16f);
+        public TextAnchor alignment;
+        public RectOffset padding = new RectOffset();
+        public RectOffset margin = new RectOffset();
+        public int fontSize;
+        public float fixedHeight;
+        public bool wordWrap;
+        public bool richText;
+        public GUIStyleState normal = new GUIStyleState();
+        public GUIStyleState hover = new GUIStyleState();
+        public GUIStyleState active = new GUIStyleState();
+        public GUIStyleState onNormal = new GUIStyleState();
+        public GUIStyleState onHover = new GUIStyleState();
+        public GUIStyleState onActive = new GUIStyleState();
+    }
     public class GUILayoutOption { }
 
     public static class GUILayout
@@ -72,12 +123,27 @@ namespace UnityEngine
         public static void SelectableLabel(string text, GUIStyle style, params GUILayoutOption[] options) { }
         public static GUILayoutOption MinHeight(float h) => new GUILayoutOption();
         public static void Space() { }
+        public struct HorizontalScope : System.IDisposable
+        {
+            public HorizontalScope(params GUILayoutOption[] options) { }
+            public void Dispose() { }
+        }
+        public struct VerticalScope : System.IDisposable
+        {
+            public VerticalScope(params GUILayoutOption[] options) { }
+            public void Dispose() { }
+        }
+        public static Rect GetControlRect(bool hasLabel, float height, params GUILayoutOption[] options) =>
+            new Rect(0f, 0f, 100f, height);
+        public static void DrawRect(Rect rect, Color color) { }
         public static void BeginHorizontal(params GUILayoutOption[] options) { }
         public static void BeginHorizontal(GUIStyle style, params GUILayoutOption[] options) { }
         public static void EndHorizontal() { }
         public static void BeginVertical(params GUILayoutOption[] options) { }
         public static void EndVertical() { }
         public static GUILayoutOption Width(float w) => new GUILayoutOption();
+        public static GUILayoutOption Height(float h) => new GUILayoutOption();
+        public static void Space(float pixels) { }
         public static GUILayoutOption ExpandHeight(bool e) => new GUILayoutOption();
         public static Vector2 BeginScrollView(Vector2 pos, params GUILayoutOption[] options) => pos;
         public static void EndScrollView() { }
@@ -119,6 +185,8 @@ namespace UnityEngine
         public static GUIStyle toolbarSearchField = new GUIStyle();
         public static GUIStyle toolbarPopup = new GUIStyle();
         public static GUIStyle textArea = new GUIStyle();
+        public static GUIStyle label = new GUIStyle();
+        public static GUIStyle miniBoldLabel = new GUIStyle();
     }
 }
 
@@ -143,9 +211,23 @@ namespace UnityEditor
         public static void LabelField(string label, GUIStyle style, params GUILayoutOption[] options) { }
         public static string TextField(string text, GUIStyle style, params GUILayoutOption[] options) => text;
         public static int Popup(int selected, string[] options, GUIStyle style, params GUILayoutOption[] options2) => selected;
+        public static int Popup(int selected, string[] options, params GUILayoutOption[] options2) => selected;
         public static void SelectableLabel(string text, GUIStyle style, params GUILayoutOption[] options) { }
         public static GUILayoutOption MinHeight(float h) => new GUILayoutOption();
         public static void Space() { }
+        public struct HorizontalScope : System.IDisposable
+        {
+            public HorizontalScope(params GUILayoutOption[] options) { }
+            public void Dispose() { }
+        }
+        public struct VerticalScope : System.IDisposable
+        {
+            public VerticalScope(params GUILayoutOption[] options) { }
+            public void Dispose() { }
+        }
+        public static Rect GetControlRect(bool hasLabel, float height, params GUILayoutOption[] options) =>
+            new Rect(0f, 0f, 100f, height);
+        public static void DrawRect(Rect rect, Color color) { }
         public static void BeginHorizontal(params GUILayoutOption[] options) { }
         public static void BeginHorizontal(GUIStyle style, params GUILayoutOption[] options) { }
         public static void EndHorizontal() { }
@@ -174,7 +256,32 @@ namespace UnityEditor
         public int priority;
     }
 
-    /// <summary>Stand-in for EditorGUI.DisabledScope, used as `using (new ...)`.</summary>
+    /// <summary>
+    /// Editor-session-scoped storage that survives a domain reload.
+    /// </summary>
+    /// <remarks>
+    /// Used by the window to remember the selected tool across a script recompile. The
+    /// stub keeps it in memory, which is enough to compile and to exercise behaviour; the
+    /// real one persists under the project's Library folder.
+    /// </remarks>
+    public static class SessionState
+    {
+        private static readonly Dictionary<string, string> Store = new Dictionary<string, string>();
+
+        public static string GetString(string key, string defaultValue) =>
+            Store.TryGetValue(key, out string value) ? value : defaultValue;
+
+        public static void SetString(string key, string value) { Store[key] = value; }
+
+        public static void EraseString(string key) { Store.Remove(key); }
+    }
+
+    /// <summary>Standard control heights and spacing, as the editor reports them.</summary>
+    public static class EditorGUIUtility
+    {
+        public static float singleLineHeight = 18f;
+    }
+
     public static class EditorGUI
     {
         public struct DisabledScope : IDisposable
@@ -182,5 +289,7 @@ namespace UnityEditor
             public DisabledScope(bool disabled) { }
             public void Dispose() { }
         }
+
+        public static void DrawRect(Rect rect, Color color) { }
     }
 }

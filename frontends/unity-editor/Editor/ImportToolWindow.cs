@@ -61,11 +61,40 @@ namespace DevCat.ToolImport.Editor
 
         private Vector2 listScroll;
         private Vector2 detailScroll;
-        private string selectedId = string.Empty;
+
+        /// <summary>
+        /// Currently selected tool id.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately NOT a plain field. A domain reload (script recompile, entering
+        /// play mode) destroys every window instance AND all static state, so the
+        /// selection was lost and the details pane went blank until the user clicked the
+        /// row again -- after every recompile, which during development is constantly.
+        ///
+        /// SessionState survives a domain reload and is scoped to the editor session, so
+        /// it is the right lifetime: the selection should outlive a recompile but not the
+        /// editor itself.
+        /// </remarks>
+        private string selectedId
+        {
+            get { return SessionState.GetString(SelectedIdKey, string.Empty); }
+            set { SessionState.SetString(SelectedIdKey, value ?? string.Empty); }
+        }
+
+        private const string SelectedIdKey = "DevCat.ToolImport.SelectedId";
         private string registryLocator = string.Empty;
         private string statusMessage = "Press Refresh to list the registry.";
         private BackendRecords detailRecords;
         private BackendRecords planRecords;
+
+        /// <summary>
+        /// The listing's records, kept for its VERSIONS entries.
+        /// </summary>
+        /// <remarks>
+        /// `list` reports every published version of every tool, so the details pane can
+        /// show them without a second backend call per selected tool.
+        /// </remarks>
+        private BackendRecords versionRecords;
 
         /// <summary>
         /// Records from the last FAILED command, shown as an error panel.
@@ -81,6 +110,17 @@ namespace DevCat.ToolImport.Editor
 
         /// <summary>Free-text filter over the tool list.</summary>
         private string searchText = string.Empty;
+
+        /// <summary>
+        /// Hairline colour for the separators that divide the window into regions.
+        /// </summary>
+        /// <remarks>
+        /// A neutral grey at low alpha, so it reads as a boundary on both the light and
+        /// the dark editor skin without needing a per-skin lookup. Unity exposes no
+        /// "separator" colour that is stable across versions, so this is stated once
+        /// rather than approximated at each call site.
+        /// </remarks>
+        private static readonly Color SeparatorColor = new Color(0.5f, 0.5f, 0.5f, 0.35f);
 
         /// <summary>Which subset of the registry the list shows.</summary>
         private ToolFilter filter = ToolFilter.All;
@@ -148,12 +188,32 @@ namespace DevCat.ToolImport.Editor
             if (cachedTools != null && cachedTools.Count > 0)
             {
                 statusMessage = string.Format("Registry: {0} - {1} tool(s).", registryLocator, cachedTools.Count);
-                RefreshInstalled();
+                RefreshInstalled(RestoreSelection);
             }
             else
             {
                 statusMessage = "Loading the registry...";
                 RefreshInstalled(Refresh);
+            }
+        }
+
+        /// <summary>
+        /// Re-fetch the details for a selection that survived a reload.
+        /// </summary>
+        /// <remarks>
+        /// The id outlives the reload but `detailRecords` does not, so the pane would be
+        /// empty even though a row shows as selected. Re-running `show` is what makes the
+        /// restored selection real rather than just a highlight.
+        ///
+        /// Runs whether or not the listing was cached: the records always need refetching,
+        /// and the cached listing cannot supply them.
+        /// </remarks>
+        private void RestoreSelection()
+        {
+            string id = selectedId;
+            if (!string.IsNullOrEmpty(id))
+            {
+                Select(id);
             }
         }
 
@@ -304,67 +364,24 @@ namespace DevCat.ToolImport.Editor
                 registryLocator = ResolveRegistryLocator();
             }
 
-            // The engine is shown, not chosen. This window IS the Unity editor, so there
-            // is no other engine it could honour -- the selector that used to sit here
-            // allowed a Godot payload to be installed into a Unity project, because the
-            // backend is engine-agnostic and takes the engine from its caller. A UI may
-            // only offer what it can honour.
+            // The engine is NOT shown. This window is the Unity editor and nothing else
+            // could be installed from it, so "Engine: unity" told the user something they
+            // already knew and spent toolbar width doing it. The value still goes to the
+            // backend on every call; it simply is not news worth a label.
             //
-            // It is displayed rather than removed because the value is passed to the
-            // backend on every call, and a user comparing against `utool show` output
-            // should be able to see which engine this window speaks for.
-            GUILayout.Label("Engine: " + EngineName, EditorStyles.miniLabel, GUILayout.Width(90f));
+            // (A cross-engine front end would need the label back, because it would have
+            // more than one possible value. This one never can.)
 
             if (busy)
             {
                 GUILayout.Label("working...", EditorStyles.miniLabel, GUILayout.Width(80f));
             }
 
-            // Search sits at the right end of the toolbar with the rest of the
-            // controls; the count next to it is what makes a filter's effect visible
-            // ("3 of 4") instead of leaving a short list unexplained.
             GUILayout.FlexibleSpace();
-
-            bool hadFocus = GUI.GetNameOfFocusedControl() == SearchControlName;
-            GUI.SetNextControlName(SearchControlName);
-            searchText = GUILayout.TextField(
-                searchText ?? string.Empty,
-                EditorStyles.toolbarSearchField,
-                GUILayout.Width(180f));
-            if (hadFocus && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
-            {
-                searchText = string.Empty;
-                GUI.FocusControl(null);
-                Event.current.Use();
-            }
-
-            if (GUILayout.Button("Clear", EditorStyles.toolbarButton, GUILayout.Width(46f)))
-            {
-                searchText = string.Empty;
-                GUI.FocusControl(null);
-            }
-
-            // Filter as one choice from a list. The previous boolean toggle could express
-            // only "installed", so "show me what this engine can actually use" and "show
-            // me what is NOT installed" had no expression at all.
-            GUILayout.Label("Show:", EditorStyles.miniLabel, GUILayout.Width(36f));
-            string[] filterLabels = { "All", "Installed", "Not installed", "This engine" };
-            ToolFilter[] filterValues =
-            {
-                ToolFilter.All, ToolFilter.Installed, ToolFilter.NotInstalled, ToolFilter.ThisEngine,
-            };
-            int current = Array.IndexOf(filterValues, filter);
-            int chosen = EditorGUILayout.Popup(current, filterLabels, EditorStyles.toolbarPopup, GUILayout.Width(110f));
-            if (chosen >= 0 && chosen < filterValues.Length && chosen != current)
-            {
-                filter = filterValues[chosen];
-            }
-
-            int shown = VisibleTools().Count;
             GUILayout.Label(
-                string.Format("{0}/{1}", shown, tools.Count),
+                string.Format("{0} tool(s)", tools.Count),
                 EditorStyles.miniLabel,
-                GUILayout.Width(46f));
+                GUILayout.Width(70f));
 
             EditorGUILayout.EndHorizontal();
         }
@@ -373,17 +390,29 @@ namespace DevCat.ToolImport.Editor
         // list
         // ------------------------------------------------------------------
 
+        /// <summary>
+        /// The left column: a header row of controls, then the tool list.
+        /// </summary>
+        /// <remarks>
+        /// Search and filtering live here rather than in the toolbar because they act on
+        /// THIS list, and a control belongs next to what it changes. In the toolbar they
+        /// sat at the far right, visually detached from the rows they filtered, and the
+        /// column width available here is what the user is actually scanning.
+        /// </remarks>
         private void DrawToolList()
         {
-            EditorGUILayout.BeginVertical(GUILayout.Width(position.width * 0.38f));
+            EditorGUILayout.BeginVertical(GUILayout.Width(ListWidth()));
 
-            List<AvailableTool> visible = VisibleTools();
-            EditorGUILayout.LabelField(
-                string.Format("Tools ({0})", visible.Count),
-                EditorStyles.boldLabel);
+            DrawListControls();
+
+            // A visible separator, so the control row and the list below it read as two
+            // regions rather than one undifferentiated column.
+            Rect separator = EditorGUILayout.GetControlRect(false, 1f);
+            EditorGUI.DrawRect(separator, SeparatorColor);
 
             listScroll = EditorGUILayout.BeginScrollView(listScroll, GUILayout.ExpandHeight(true));
 
+            List<AvailableTool> visible = VisibleTools();
             if (visible.Count == 0)
             {
                 // Say WHICH kind of empty this is. "No tools" and "nothing matched your
@@ -402,6 +431,58 @@ namespace DevCat.ToolImport.Editor
 
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
+        }
+
+        /// <summary>Width of the left column, clamped so neither side becomes unusable.</summary>
+        private float ListWidth()
+        {
+            return Mathf.Clamp(position.width * 0.38f, 200f, 420f);
+        }
+
+        /// <summary>Search and filter, laid out to the width of the list column.</summary>
+        private void DrawListControls()
+        {
+            // Search on its own row, sized to the column, so a long tool name is not the
+            // only thing that fits. The placeholder makes the scope explicit: only the
+            // displayed name is searched.
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                bool hadFocus = GUI.GetNameOfFocusedControl() == SearchControlName;
+                GUI.SetNextControlName(SearchControlName);
+                searchText = GUILayout.TextField(
+                    searchText ?? string.Empty,
+                    EditorStyles.toolbarSearchField);
+
+                if (hadFocus && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
+                {
+                    searchText = string.Empty;
+                    GUI.FocusControl(null);
+                    Event.current.Use();
+                }
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                // One choice from a list rather than independent toggles: two toggles can
+                // both be on, which means nothing.
+                string[] filterLabels = { "All", "Installed", "Not installed", "This engine" };
+                ToolFilter[] filterValues =
+                {
+                    ToolFilter.All, ToolFilter.Installed, ToolFilter.NotInstalled, ToolFilter.ThisEngine,
+                };
+                int current = Array.IndexOf(filterValues, filter);
+                int chosen = EditorGUILayout.Popup(current, filterLabels);
+                if (chosen >= 0 && chosen < filterValues.Length && chosen != current)
+                {
+                    filter = filterValues[chosen];
+                }
+
+                int shown = VisibleTools().Count;
+                GUILayout.Label(
+                    string.Format("{0}/{1}", shown, tools.Count),
+                    EditorStyles.miniLabel,
+                    GUILayout.Width(44f));
+            }
         }
 
         /// <summary>
@@ -438,10 +519,95 @@ namespace DevCat.ToolImport.Editor
             // worse than a click that is visibly unavailable.
             using (new EditorGUI.DisabledScope(busy))
             {
-                if (GUILayout.Toggle(selected, label, "Button") != selected)
+                // A Label in a Selectable, not a Toggle styled as a button. A button
+                // draws its text CENTRED with padding, which made short and long names
+                // start at different x positions and read as a ragged block; every name
+                // must start at the same left edge in a list. It also stopped the row from
+                // looking like text, which is what it is.
+                if (GUILayout.Toggle(selected, label, RowStyle()) != selected)
                 {
                     Select(tool.Id);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Style for one list row: left-aligned, with a selection highlight.
+        /// </summary>
+        /// <remarks>
+        /// Built once and cached. Constructing a GUIStyle per row per repaint is exactly
+        /// the kind of allocation IMGUI punishes, since OnGUI runs several times a frame.
+        /// </remarks>
+        private static GUIStyle RowStyle()
+        {
+            if (rowStyle == null)
+            {
+                rowStyle = new GUIStyle(EditorStyles.label)
+                {
+                    alignment = TextAnchor.MiddleLeft,
+                    padding = new RectOffset(16, 4, 3, 3),
+                    fixedHeight = 0f,
+                    wordWrap = false,
+                    richText = false,
+                };
+                rowStyle.normal.textColor = EditorStyles.label.normal.textColor;
+                rowStyle.hover.textColor = EditorStyles.label.normal.textColor;
+                // The selected row needs a visible highlight; copies the built-in
+                // selection colours so it matches the rest of the editor.
+                rowStyle.onNormal = new GUIStyleState
+                {
+                    background = EditorStyles.label.onNormal.background,
+                    textColor = EditorStyles.label.onNormal.textColor,
+                };
+                rowStyle.onHover = rowStyle.onNormal;
+                rowStyle.onActive = rowStyle.onNormal;
+            }
+            return rowStyle;
+        }
+
+        private static GUIStyle rowStyle;
+
+        /// <summary>
+        /// A label whose text can be selected and copied.
+        /// </summary>
+        /// <remarks>
+        /// Used for every value a user might need OUTSIDE the editor: an id to paste into
+        /// a command, a URL, a hash, a file path. Plain labels cannot be selected, which
+        /// forced people to retype or transcribe by eye -- and a 64-character digest is
+        /// not something to transcribe by eye.
+        ///
+        /// Word-wrapped labels keep their wrapping; the height is measured so the text is
+        /// not clipped, which a SelectableLabel does not do on its own.
+        /// </remarks>
+        private void CopyableLabel(string text, bool wrap = true)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            if (!wrap)
+            {
+                EditorGUILayout.SelectableLabel(
+                    text,
+                    EditorStyles.label,
+                    GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                return;
+            }
+
+            float width = Mathf.Max(60f, position.width * 0.62f - 24f);
+            float height = EditorStyles.label.CalcHeight(new GUIContent(text), width);
+            EditorGUILayout.SelectableLabel(
+                text,
+                EditorStyles.label,
+                GUILayout.Height(Mathf.Max(EditorGUIUtility.singleLineHeight, height)));
+        }
+
+        /// <summary>A label and its copyable value on one line.</summary>
+        private void CopyableField(string label, string value)
+        {
+            if (string.IsNullOrEmpty(value)) return;
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label(label, EditorStyles.miniBoldLabel, GUILayout.Width(96f));
+                CopyableLabel(value);
             }
         }
 
@@ -462,27 +628,19 @@ namespace DevCat.ToolImport.Editor
 
             detailScroll = EditorGUILayout.BeginScrollView(detailScroll, GUILayout.ExpandHeight(true));
 
-            EditorGUILayout.LabelField(detailRecords.Detail("displayName"), EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(detailRecords.Detail("id") + "  " + detailRecords.Detail("version"),
-                EditorStyles.miniLabel);
+            DrawDetailHeader();
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Description", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(detailRecords.Detail("description"), EditorStyles.wordWrappedLabel);
+            CopyableLabel(detailRecords.Detail("description"));
+
+            DrawVersions();
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Capabilities", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("Engines: " + detailRecords.Detail("engines"));
-            EditorGUILayout.LabelField(
-                "Provides: " + (string.IsNullOrEmpty(detailRecords.Detail("provides"))
-                    ? "(none)"
-                    : detailRecords.Detail("provides")),
-                EditorStyles.wordWrappedLabel);
-            EditorGUILayout.LabelField(
-                "Injects: " + (string.IsNullOrEmpty(detailRecords.Detail("injects"))
-                    ? "(none)"
-                    : detailRecords.Detail("injects")),
-                EditorStyles.wordWrappedLabel);
+            DrawMultiValue("Engines", detailRecords.Detail("engines"));
+            DrawMultiValue("Provides", detailRecords.Detail("provides"));
+            DrawMultiValue("Injects", detailRecords.Detail("injects"));
 
             // Engine-specific requirements, rendered per engine from TARGET records.
             // The window deliberately does not name requirement keys: which keys
@@ -561,29 +719,51 @@ namespace DevCat.ToolImport.Editor
                 }
             }
 
-            var dependencyLines = new List<string>();
+            var dependencies = new List<string[]>();
             foreach (string[] dependency in detailRecords.Of("DEPENDENCY"))
             {
-                if (dependency.Length >= 4)
-                {
-                    // Render the constraint in words. `^1.1.0` is semver shorthand that
-                    // means "1.1.0 or newer, same major" -- meaningful to a resolver and
-                    // opaque to the person deciding whether to install. The raw form is
-                    // kept in the tooltip so nothing is hidden from someone who wants it.
-                    string constraint = HumanConstraint(dependency[1]);
-                    dependencyLines.Add(
-                        "  " + dependency[0] + "  " + constraint +
-                        "  (" + dependency[2] + ")" +
-                        (string.IsNullOrEmpty(dependency[3]) ? string.Empty : " - " + dependency[3]));
-                }
+                if (dependency.Length >= 4) dependencies.Add(dependency);
             }
-            if (dependencyLines.Count > 0)
+            if (dependencies.Count > 0)
             {
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Dependencies", EditorStyles.boldLabel);
-                foreach (string line in dependencyLines)
+
+                foreach (string[] dependency in dependencies)
                 {
-                    EditorGUILayout.LabelField(line, EditorStyles.wordWrappedLabel);
+                    string id = dependency[0];
+                    // Clicking a dependency jumps to it. Without this, checking what a
+                    // tool needs means finding it by hand in the list -- and the id is
+                    // often not what the row displays, so "find it by eye" can fail.
+                    bool known = IsInRegistry(id);
+
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        if (known)
+                        {
+                            if (GUILayout.Button(id, LinkStyle(), GUILayout.Width(180f)))
+                            {
+                                Select(id);
+                            }
+                        }
+                        else
+                        {
+                            // Named but absent: say so rather than offering a dead link.
+                            GUILayout.Label(id, EditorStyles.miniLabel, GUILayout.Width(180f));
+                        }
+
+                        GUILayout.Label(
+                            HumanConstraint(dependency[1]) +
+                            "  (" + dependency[2] + ")" +
+                            (known ? string.Empty : "  - not in this registry"),
+                            EditorStyles.miniLabel);
+
+                        if (!string.IsNullOrEmpty(dependency[3]))
+                        {
+                            GUILayout.Label("- " + dependency[3], EditorStyles.miniLabel);
+                        }
+                        GUILayout.FlexibleSpace();
+                    }
                 }
             }
 
@@ -765,8 +945,232 @@ namespace DevCat.ToolImport.Editor
         }
 
         /// <summary>
-        /// Turn a version constraint into words a user can act on.
+        /// The identity block at the top of the details pane.
         /// </summary>
+        /// <remarks>
+        /// Comma-joined fields are rendered as CHIPS, one per value, on wrapped rows.
+        /// A single line such as
+        /// `provides: script.api.argument-guards,script.api.object-pooling` is a wall of
+        /// near-identical tokens that is hard to scan and easy to misread; discrete chips
+        /// make the number of items visible at a glance. This is the same reason the Unity
+        /// Package Manager shows capabilities as tags rather than as a string.
+        /// </remarks>
+        private void DrawDetailHeader()
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(detailRecords.Detail("displayName"), DetailTitleStyle());
+                GUILayout.FlexibleSpace();
+                if (installedIds.Contains(selectedId))
+                {
+                    GUILayout.Label("installed", InstalledBadgeStyle());
+                }
+            }
+
+            // The id IS copyable and IS shown: it is what goes on a command line, and it
+            // is the one thing a user may need to paste elsewhere.
+            CopyableField("id", detailRecords.Detail("id"));
+
+            string version = detailRecords.Detail("version");
+            string type = detailRecords.Detail("type");
+            string license = detailRecords.Detail("license");
+            string author = detailRecords.Detail("author");
+            string homepage = detailRecords.Detail("homepage");
+            string deprecated = detailRecords.Detail("deprecated");
+
+            var facts = new List<string>();
+            if (!string.IsNullOrEmpty(version)) facts.Add("version " + version);
+            if (!string.IsNullOrEmpty(type)) facts.Add(type);
+            if (!string.IsNullOrEmpty(license)) facts.Add(license + " licence");
+            if (!string.IsNullOrEmpty(author)) facts.Add("by " + author);
+            if (deprecated == "true") facts.Add("DEPRECATED");
+            if (facts.Count > 0)
+            {
+                EditorGUILayout.LabelField(string.Join("  •  ", facts.ToArray()), EditorStyles.miniLabel);
+            }
+
+            // Links, as clickable labels rather than plain text: a URL that cannot be
+            // clicked is a URL the user has to select and paste by hand, which is the
+            // thing clickable text exists to avoid.
+            if (!string.IsNullOrEmpty(homepage))
+            {
+                DrawLink("Homepage", homepage);
+            }
+        }
+
+        /// <summary>A clickable external link.</summary>
+        private void DrawLink(string label, string url)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label(label, EditorStyles.miniBoldLabel, GUILayout.Width(96f));
+                if (GUILayout.Button(url, LinkStyle()))
+                {
+                    Application.OpenURL(url);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A labelled field holding one or more comma-separated values, drawn as chips.
+        /// </summary>
+        /// <remarks>
+        /// Empty means "(none)" and is still shown. Silently omitting the row would leave
+        /// the user unsure whether the tool declares nothing or the window failed to read
+        /// it -- and for `injects`, "nothing" is meaningful information.
+        /// </remarks>
+        private void DrawMultiValue(string label, string commaSeparated)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label(label, EditorStyles.miniBoldLabel, GUILayout.Width(96f));
+
+                if (string.IsNullOrEmpty(commaSeparated))
+                {
+                    GUILayout.Label("(none)", EditorStyles.miniLabel);
+                    return;
+                }
+
+                // Wrapped rows of chips. GUILayout.Wrap is not available for arbitrary
+                // content, so each value is placed with its own width and the row breaks
+                // when the measured total would overflow the pane.
+                float available = Mathf.Max(80f, position.width * 0.62f - 120f);
+                float used = 0f;
+                foreach (string raw in commaSeparated.Split(','))
+                {
+                    string value = raw.Trim();
+                    if (value.Length == 0) continue;
+
+                    var content = new GUIContent(value);
+                    float width = ChipStyle().CalcSize(content).x + 6f;
+                    if (used + width > available && used > 0f)
+                    {
+                        EditorGUILayout.EndHorizontal();
+                        EditorGUILayout.BeginHorizontal();
+                        GUILayout.Space(96f);
+                        used = 0f;
+                    }
+
+                    GUILayout.Label(value, ChipStyle());
+                    used += width + 2f;
+                }
+                GUILayout.FlexibleSpace();
+            }
+        }
+
+        /// <summary>Is this tool id present in the loaded listing?</summary>
+        /// <remarks>
+        /// Used to decide whether a dependency can be jumped to. A tool may declare a
+        /// dependency the registry does not carry, and offering a link that leads nowhere
+        /// is worse than saying the id is absent.
+        /// </remarks>
+        private bool IsInRegistry(string id)
+        {
+            foreach (AvailableTool tool in tools)
+            {
+                if (tool.Id == id) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The published versions of the selected tool.
+        /// </summary>
+        /// <remarks>
+        /// Reported because a tool may publish several, and the details pane showed only
+        /// whichever one was `latest` with no hint that others existed. A user who needs a
+        /// pinned older version cannot discover it from a single number.
+        ///
+        /// The VERSIONS records are per tool, so they are filtered by the selected id --
+        /// they arrive in one stream for the whole listing.
+        /// </remarks>
+        private void DrawVersions()
+        {
+            var versions = new List<string>();
+            var latest = string.Empty;
+
+            foreach (string[] fields in versionRecords.Of("VERSIONS"))
+            {
+                if (fields.Length < 2 || fields[0] != selectedId) continue;
+                versions.Add(fields[1]);
+                if (fields.Length > 2 && fields[2] == "latest") latest = fields[1];
+            }
+
+            if (versions.Count <= 1) return;
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField(
+                string.Format("Versions ({0})", versions.Count), EditorStyles.boldLabel);
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                foreach (string version in versions)
+                {
+                    bool isLatest = version == latest;
+                    GUILayout.Label(
+                        version + (isLatest ? "  latest" : string.Empty),
+                        isLatest ? ChipStyle() : LinkStyle());
+                }
+                GUILayout.FlexibleSpace();
+            }
+        }
+
+        private static GUIStyle detailTitleStyle;
+        private static GUIStyle chipStyle;
+        private static GUIStyle linkStyle;
+        private static GUIStyle installedBadgeStyle;
+
+        private static GUIStyle DetailTitleStyle()
+        {
+            if (detailTitleStyle == null)
+            {
+                detailTitleStyle = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13 };
+            }
+            return detailTitleStyle;
+        }
+
+        private static GUIStyle ChipStyle()
+        {
+            if (chipStyle == null)
+            {
+                chipStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    padding = new RectOffset(6, 6, 2, 2),
+                    margin = new RectOffset(0, 2, 1, 1),
+                    alignment = TextAnchor.MiddleCenter,
+                };
+                // A subtle box, so a chip reads as one unit rather than as loose text.
+                chipStyle.normal.background = EditorStyles.toolbarButton.normal.background;
+            }
+            return chipStyle;
+        }
+
+        private static GUIStyle LinkStyle()
+        {
+            if (linkStyle == null)
+            {
+                linkStyle = new GUIStyle(EditorStyles.label)
+                {
+                    alignment = TextAnchor.MiddleLeft,
+                    padding = new RectOffset(0, 4, 0, 0),
+                };
+            }
+            return linkStyle;
+        }
+
+        private static GUIStyle InstalledBadgeStyle()
+        {
+            if (installedBadgeStyle == null)
+            {
+                installedBadgeStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    padding = new RectOffset(6, 6, 2, 2),
+                    alignment = TextAnchor.MiddleCenter,
+                };
+                installedBadgeStyle.normal.background = EditorStyles.toolbarButton.normal.background;
+            }
+            return installedBadgeStyle;
+        }
         /// <remarks>
         /// `^1.1.0` and `~1.1.0` are semver notation. They belong in a manifest and in
         /// resolver code; showing them raw in a UI asks the reader to know that `^` means
@@ -898,6 +1302,9 @@ namespace DevCat.ToolImport.Editor
                 // replace a good listing with an empty one.
                 cachedTools = loaded;
                 cachedRegistryLocator = registryLocator;
+                // VERSIONS records arrive with the listing, so they are kept here rather
+                // than fetched again when a row is selected.
+                versionRecords = records;
                 statusMessage = string.Format("Registry: {0} - {1} tool(s).", registryLocator, tools.Count);
             });
         }
