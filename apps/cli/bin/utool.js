@@ -414,17 +414,36 @@ function applyListFilters(tools, flags) {
 
 async function cmdShow({ registryLocator, flags, positionals }) {
   if (positionals.length !== 1) {
-    process.stderr.write('usage: utool show <id>\n');
+    process.stderr.write('usage: utool show <id>[@<version>]\n');
     return EXIT.USAGE;
   }
-  const [id] = positionals;
+  // `id@version` selects which release to describe. Without it an editor offering a version
+  // picker would show the latest release's description and floors next to a plan for a
+  // different version, which is worse than showing nothing.
+  const [requested] = positionals;
+  const at = requested.indexOf('@');
+  const id = at > 0 ? requested.slice(0, at) : requested;
+  const wanted = at > 0 ? requested.slice(at + 1) : null;
+
   const source = sourceFor(registryLocator, flags);
   const index = await source.fetchIndex();
   const summary = (index.tools ?? []).find((tool) => tool.id === id);
   if (!summary) {
     throw new UtoolError('E-NOT-FOUND', `no tool '${id}' in ${source.describe}`);
   }
-  const manifest = toManifest(await source.fetchManifest(summary.manifestPath));
+  const base = toManifest(await source.fetchManifest(summary.manifestPath));
+
+  let manifest = base;
+  if (wanted) {
+    if (!base.versionNumbers.includes(wanted)) {
+      throw new UtoolError(
+        'E-VERSION-NOT-FOUND',
+        `${id}: no version '${wanted}' is published ` +
+        `(available: ${base.versionNumbers.join(', ') || 'none'})`,
+      );
+    }
+    manifest = base.at(wanted);
+  }
 
   if (inRecords(flags)) {
     rec.meta(source.describe);

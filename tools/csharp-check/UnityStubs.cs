@@ -366,6 +366,11 @@ namespace UnityEngine
         public static GUIStyle whiteLabel = new GUIStyle();
         public static GUIStyle largeLabel = new GUIStyle();
         public static GUIStyle helpBox = new GUIStyle();
+        /// <summary>Small square button, used for the narrow collapse controls.</summary>
+        public static GUIStyle miniButton = new GUIStyle();
+        public static GUIStyle miniButtonLeft = new GUIStyle();
+        public static GUIStyle miniButtonMiddle = new GUIStyle();
+        public static GUIStyle miniButtonRight = new GUIStyle();
     }
 }
 
@@ -502,6 +507,26 @@ namespace UnityEditor
         public static void SetString(string key, string value) { Store[key] = value; }
 
         public static void EraseString(string key) { Store.Remove(key); }
+
+        /// <summary>
+        /// Bool storage, used for view state that should survive a domain reload.
+        /// </summary>
+        /// <remarks>
+        /// Kept in the same store as the strings, serialised, so the two cannot disagree
+        /// about whether a key is set. Unity keeps them separately but exposes them as one
+        /// session-scoped bag, which is the part that matters to a caller.
+        /// </remarks>
+        public static bool GetBool(string key, bool defaultValue) =>
+            Store.TryGetValue(key, out string value) ? value == "true" : defaultValue;
+
+        public static void SetBool(string key, bool value) { Store[key] = value ? "true" : "false"; }
+
+        public static int GetInt(string key, int defaultValue) =>
+            Store.TryGetValue(key, out string value) && int.TryParse(value, out int parsed)
+                ? parsed
+                : defaultValue;
+
+        public static void SetInt(string key, int value) { Store[key] = value.ToString(); }
     }
 
     /// <summary>

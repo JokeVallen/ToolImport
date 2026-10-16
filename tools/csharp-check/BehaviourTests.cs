@@ -52,6 +52,8 @@ namespace CsharpCheck
             ConstraintsArePutIntoWords();
             ToolTypeIsNotAVersion();
             VersionsCarryTheLatestMarker();
+            ListValuesMatchExactly();
+            DependenciesAreMatchedByIdAlone();
 
             Console.WriteLine(failures == 0
                 ? "record reader behaviour OK"
@@ -139,6 +141,66 @@ namespace CsharpCheck
             Check("field 5 is the size", fields.Length > 5 && fields[5] == "1709");
             Check("field 10 is skipped", fields.Length > 10 && fields[10] == string.Empty,
                 fields.Length > 10 ? "[" + fields[10] + "]" : "(short)");
+        }
+
+        /// <summary>
+        /// The tag/capability filter matches whole elements, not substrings.
+        /// </summary>
+        /// <remarks>
+        /// A substring match would make the "editor" tag select every tool tagged
+        /// "editor-tool" as well. The result would be defensible in the data and wrong on
+        /// screen, which is the same failure shape as a search that matches an id the user
+        /// cannot see.
+        /// </remarks>
+        private static void ListValuesMatchExactly()
+        {
+            Check("an exact element matches",
+                ImportToolWindow.HasListValue("editor,workflow", "editor"));
+            Check("a later element matches",
+                ImportToolWindow.HasListValue("editor,workflow", "workflow"));
+            Check("the match ignores case",
+                ImportToolWindow.HasListValue("editor,workflow", "EDITOR"));
+            Check("surrounding spaces are tolerated",
+                ImportToolWindow.HasListValue("editor, workflow", "workflow"));
+            Check("a prefix does NOT match",
+                !ImportToolWindow.HasListValue("editor-tool", "editor"),
+                "a substring match would select unrelated tools");
+            Check("a suffix does NOT match",
+                !ImportToolWindow.HasListValue("my-editor", "editor"));
+            Check("an empty field matches nothing",
+                !ImportToolWindow.HasListValue("", "editor"));
+            Check("an empty needle matches nothing",
+                !ImportToolWindow.HasListValue("editor", ""),
+                "an empty filter must not be treated as a match by the value matcher");
+        }
+
+        /// <summary>
+        /// "Depends on X" is answered from the tool's own dependency field.
+        /// </summary>
+        /// <remarks>
+        /// TOOL carries dependencies as `id@constraint`, so the id has to be peeled off
+        /// before comparing. Comparing the raw entry would never match anything, and the
+        /// filter would look like it worked while always returning an empty list.
+        /// </remarks>
+        private static void DependenciesAreMatchedByIdAlone()
+        {
+            AvailableTool tool = AvailableTool.FromFields(new[]
+            {
+                "my-tool", "1.0.0", "editor-tool", "unity", "", "", "My Tool", "",
+                "core-editor-utils@^1.1.0,libs-sharp-json", "payloads/my-tool/tool.yaml",
+            });
+
+            Check("a dependency with a constraint matches",
+                ImportToolWindow.DependsOnTool(tool, "core-editor-utils"));
+            Check("a dependency without a constraint matches",
+                ImportToolWindow.DependsOnTool(tool, "libs-sharp-json"));
+            Check("a tool it does not depend on does not match",
+                !ImportToolWindow.DependsOnTool(tool, "editor-coroutines-lit"));
+            Check("the constraint is not confused for the id",
+                !ImportToolWindow.DependsOnTool(tool, "^1.1.0"));
+            Check("a tool with no dependencies matches nothing",
+                !ImportToolWindow.DependsOnTool(
+                    AvailableTool.FromFields(new[] { "lonely", "1.0.0", "tool-library" }), "anything"));
         }
 
         private static void UnescapeHandlesTabAndNewline()
