@@ -125,15 +125,30 @@ export function toolDetail(manifest, model) {
   record('DETAIL', ['id', manifest.id]);
   record('DETAIL', ['displayName', manifest.displayName]);
   record('DETAIL', ['type', manifest.type]);
-  record('DETAIL', ['version', manifest.version]);
+  // The raw document is the WHOLE file: in formatVersion 3 it carries `latest` and a
+  // `versions` list, and has no top-level `version` at all. Reading `manifest.version`
+  // here therefore produced an empty string, and an editor front end that showed it was
+  // showing nothing. The model knows which release this instance resolved to.
+  record('DETAIL', ['version', model?.version ?? manifest.version ?? manifest.latest ?? '']);
   record('DETAIL', ['description', manifest.description]);
   record('DETAIL', ['engines', (model?.engines ?? Object.keys(manifest.targets ?? {})).join(',')]);
   record('DETAIL', ['provides', (manifest.provides ?? []).join(',')]);
   record('DETAIL', ['injects', (manifest.injects ?? []).join(',')]);
+  // Tags were reported in prose but never in records, so an editor front end had no way to
+  // show them - the listing carries them in TOOL, but a DETAIL view needs them for the
+  // tool it is actually displaying, and filtering by them needs a value to match on.
+  record('DETAIL', ['tags', (model?.tags ?? manifest.tags ?? []).join(',')]);
   record('DETAIL', ['license', manifest.license]);
   record('DETAIL', ['author', manifest.author]);
   record('DETAIL', ['homepage', manifest.homepage]);
   record('DETAIL', ['deprecated', manifest.deprecated === true ? 'true' : 'false']);
+
+  // Release metadata, which lives on the VERSION ENTRY rather than the top-level document,
+  // so it is reachable only through the resolved entry.
+  const entry = model?.entry ?? null;
+  record('DETAIL', ['releasedAt', entry?.releasedAt ?? manifest.releasedAt ?? '']);
+  record('DETAIL', ['yanked', (entry?.yanked ?? manifest.yanked) === true ? 'true' : 'false']);
+  record('DETAIL', ['notes', entry?.notes ?? manifest.notes ?? '']);
 
   for (const dep of manifest.dependencies ?? []) {
     record('DEPENDENCY', [

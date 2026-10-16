@@ -52,7 +52,41 @@ namespace UnityEngine
             point.x >= x && point.x < x + width && point.y >= y && point.y < y + height;
     }
 
-    public class Object { }
+    /// <summary>
+    /// Base of every Unity object. Only the members the front end reaches for.
+    /// </summary>
+    /// <remarks>
+    /// DestroyImmediate lives here rather than on EditorWindow because that is where Unity
+    /// puts it. The front end calls it unqualified, which resolves through EditorWindow's
+    /// inheritance from this type - so a stub that hung it off EditorWindow would compile
+    /// the call for the wrong reason and hide a real change in that hierarchy.
+    /// </remarks>
+    public class Object
+    {
+        public HideFlags hideFlags;
+        public static void DestroyImmediate(Object obj) { }
+        public static void Destroy(Object obj) { }
+    }
+
+    /// <summary>How an object survives serialisation and scene changes.</summary>
+    public enum HideFlags
+    {
+        None = 0,
+        HideInHierarchy = 1,
+        HideInInspector = 2,
+        DontSaveInEditor = 4,
+        NotEditable = 8,
+        DontSaveInBuild = 16,
+        DontUnloadUnusedAsset = 32,
+        DontSave = 52,
+        HideAndDontSave = 61,
+    }
+
+    /// <summary>Texture sampling filter.</summary>
+    public enum FilterMode { Point, Bilinear, Trilinear }
+
+    /// <summary>Behaviour outside the 0..1 UV range.</summary>
+    public enum TextureWrapMode { Repeat, Clamp, Mirror, MirrorOnce }
 
     public class GUIContent
     {
@@ -112,12 +146,14 @@ namespace UnityEngine
         public Texture2D background;
     }
 
-    public class Texture2D
+    public class Texture2D : UnityEngine.Object
     {
         public Texture2D() { }
         public Texture2D(int width, int height) { }
         public void SetPixel(int x, int y, Color color) { }
         public void Apply() { }
+        public FilterMode filterMode;
+        public TextureWrapMode wrapMode;
     }
 
     public struct Color
@@ -125,6 +161,10 @@ namespace UnityEngine
         public float r, g, b, a;
         public Color(float r, float g, float b) { this.r = r; this.g = g; this.b = b; this.a = 1f; }
         public Color(float r, float g, float b, float a) { this.r = r; this.g = g; this.b = b; this.a = a; }
+        /// <summary>Opaque white, the neutral tint for a recoloured label.</summary>
+        public static Color white => new Color(1f, 1f, 1f, 1f);
+        public static Color black => new Color(0f, 0f, 0f, 1f);
+        public static Color clear => new Color(0f, 0f, 0f, 0f);
     }
 
     public static class Mathf
@@ -169,6 +209,29 @@ namespace UnityEngine
         public GUIStyleState onNormal = new GUIStyleState();
         public GUIStyleState onHover = new GUIStyleState();
         public GUIStyleState onActive = new GUIStyleState();
+
+        /// <summary>
+        /// Widths of the 9-slice border around the background texture.
+        /// </summary>
+        /// <remarks>
+        /// A plain field rather than a property, because Unity exposes it as one and the
+        /// front end mutates it in place through an extension method.
+        /// </remarks>
+        public RectOffset border = new RectOffset();
+
+        /// <summary>An empty style with no background, for drawing nothing.</summary>
+        public static GUIStyle none => new GUIStyle();
+
+        /// <summary>
+        /// Draw the style into an explicit rect.
+        /// </summary>
+        /// <param name="isHover">Whether the pointer is over the control.</param>
+        /// <param name="isActive">Whether the control is being pressed.</param>
+        /// <param name="on">Whether the control is in its "on" (selected) state.</param>
+        /// <param name="hasKeyboardFocus">Whether the control holds keyboard focus.</param>
+        public void Draw(Rect rect, GUIContent content, bool isHover, bool isActive, bool on, bool hasKeyboardFocus) { }
+        public void Draw(Rect rect, GUIContent content, bool isHover, bool isActive, bool on, bool hasKeyboardFocus, bool giveKeyboardFocus) { }
+        public void Draw(Rect rect, string text, bool isHover, bool isActive, bool on, bool hasKeyboardFocus) { }
     }
     public class GUILayoutOption { }
 
@@ -230,9 +293,23 @@ namespace UnityEngine
         public Vector2 mousePosition;
         public KeyCode keyCode;
         public void Use() { }
+
+        /// <summary>
+        /// The event type as it applies to one control.
+        /// </summary>
+        /// <remarks>
+        /// This is what lets a hand-rolled control consume its own click without stealing
+        /// it from the rest of the window. Unity also rewrites MouseDown/MouseUp into
+        /// MouseDrag once a control holds hotControl; this stub returns the raw type,
+        /// which is enough to type-check the call sites.
+        /// </remarks>
+        public EventType GetTypeForControl(int controlID) => type;
     }
 
-    public enum EventType { MouseDown, MouseUp, KeyDown, KeyUp, Repaint, Layout }
+    public enum EventType { MouseDown, MouseUp, MouseDrag, KeyDown, KeyUp, Repaint, Layout, Used }
+
+    /// <summary>Why a control wants an ID, which decides how it may be reused.</summary>
+    public enum FocusType { Native, Keyboard, Passive }
 
     public enum KeyCode { None, Escape, Return, Tab }
 
@@ -245,7 +322,14 @@ namespace UnityEngine
         public static Color color = new Color(1f, 1f, 1f, 1f);
         public static GUISkin skin = new GUISkin();
         public static void Label(Rect rect, GUIContent content, GUIStyle style) { }
+        public static void DrawTexture(Rect rect, Texture2D texture) { }
+        public static void DrawTexture(Rect rect, Texture2D texture, ScaleMode scaleMode) { }
+        public static bool Button(Rect rect, GUIContent content) => false;
+        public static bool Button(Rect rect, GUIContent content, GUIStyle style) => false;
     }
+
+    /// <summary>How a texture is stretched when the rect aspect does not match.</summary>
+    public enum ScaleMode { StretchToFill, ScaleAndCrop, ScaleToFit }
 
     /// <summary>Rect reservation, used to draw a full-height column rule.</summary>
     /// <summary>The active skin, for reaching built-in styles by name.</summary>
@@ -278,6 +362,10 @@ namespace UnityEngine
         public static GUIStyle textArea = new GUIStyle();
         public static GUIStyle label = new GUIStyle();
         public static GUIStyle miniBoldLabel = new GUIStyle();
+        /// <summary>White text, used to tint an installed row's label without recolouring the rest.</summary>
+        public static GUIStyle whiteLabel = new GUIStyle();
+        public static GUIStyle largeLabel = new GUIStyle();
+        public static GUIStyle helpBox = new GUIStyle();
     }
 }
 
@@ -291,9 +379,25 @@ namespace UnityEditor
         public Vector2 minSize;
         public Rect position;
         public static T GetWindow<T>() where T : EditorWindow, new() => new T();
+
+        /// <summary>
+        /// Open a window, optionally docked beside others.
+        /// </summary>
+        /// <remarks>
+        /// The parameter must be named <c>desiredDockNextTo</c> because the front end passes
+        /// it BY NAME, which is the documented Unity signature.
+        /// </remarks>
+        public static T GetWindow<T>(
+            bool utility, string title, bool focus, params System.Type[] desiredDockNextTo)
+            where T : EditorWindow, new() => new T();
+
+        public static T GetWindow<T>(params System.Type[] desiredDockNextTo)
+            where T : EditorWindow, new() => new T();
+
         public void Show() { }
         public void Repaint() { }
         public void Close() { }
+        public void Focus() { }
     }
 
     public static class EditorGUILayout
@@ -334,6 +438,30 @@ namespace UnityEditor
         public static void EndVertical() { }
         public static Vector2 BeginScrollView(Vector2 pos, params GUILayoutOption[] options) => pos;
         public static void EndScrollView() { }
+
+        /// <summary>
+        /// A scroll view as a disposable scope, exposing its live scroll position.
+        /// </summary>
+        /// <remarks>
+        /// A class rather than a struct, because the caller reads `scrollPosition` back out
+        /// of the same instance it constructed before the scope disposes.
+        /// </remarks>
+        public class ScrollViewScope : System.IDisposable
+        {
+            public ScrollViewScope(Vector2 position, params GUILayoutOption[] options)
+            {
+                scrollPosition = position;
+            }
+
+            public ScrollViewScope(Vector2 position, bool alwaysShowHorizontal, bool alwaysShowVertical, params GUILayoutOption[] options)
+            {
+                scrollPosition = position;
+            }
+
+            public Vector2 scrollPosition { get; set; }
+            public bool handleScrollWheel { get; set; }
+            public void Dispose() { }
+        }
     }
 
     public static class EditorUtility
@@ -412,11 +540,20 @@ namespace UnityEditor
             string text, string tooltip, Texture2D icon, string fallbackText) => new GUIContent(text, tooltip);
     }
 
-    /// <summary>Global IMGUI control state, used to drop focus.</summary>
+    /// <summary>Global IMGUI control state, used to drop focus and to own a click.</summary>
     public static class GUIUtility
     {
         public static int hotControl;
         public static int keyboardControl;
+
+        /// <summary>
+        /// Allocate an ID for a hand-rolled control, keyed on the rect so it is stable
+        /// across frames while the layout holds still.
+        /// </summary>
+        public static int GetControlID(FocusType focus, Rect position) => 0;
+        public static int GetControlID(int hint, FocusType focus, Rect position) => hint;
+        public static int GetControlID(FocusType focus) => 0;
+        public static object GetStateObject(System.Type type, int controlID) => null;
     }
 
     public static class EditorGUI
@@ -427,6 +564,25 @@ namespace UnityEditor
             public void Dispose() { }
         }
 
+        /// <summary>
+        /// Disable everything drawn inside the scope, restoring the previous state on exit.
+        /// </summary>
+        /// <remarks>
+        /// Distinct from DisabledScope only in that it NESTS correctly and is used with
+        /// `using` around a block of controls rather than a single one.
+        /// </remarks>
+        public struct DisabledGroupScope : IDisposable
+        {
+            public DisabledGroupScope(bool disabled) { }
+            public void Dispose() { }
+        }
+
         public static void DrawRect(Rect rect, Color color) { }
+        public static bool enabled { get; set; }
+        public static Color color = new Color(1f, 1f, 1f, 1f);
+        public static Color backgroundColor = new Color(0.5f, 0.5f, 0.5f, 1f);
+        public static void BeginChangeCheck() { }
+        public static bool EndChangeCheck() => false;
+        public static int indentLevel { get; set; }
     }
 }

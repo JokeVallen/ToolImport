@@ -90,6 +90,14 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
    * @type {Map<string, string>}
    */
   const versionsRequested = new Map();
+  /**
+   * Versions the USER named explicitly, as opposed to versions a dependency constraint
+   * narrowed to. The distinction matters twice: an explicit request may reach a yanked
+   * release, and an explicit request that cannot be honoured must be reported rather than
+   * quietly swapped for a different version.
+   * @type {Map<string, string>}
+   */
+  const userPinned = new Map();
 
   const seen = new Set();
   const inProgress = new Set();
@@ -184,7 +192,10 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
     if (at > 0) {
       const bare = id.slice(0, at);
       const wanted = id.slice(at + 1);
-      if (wanted) versionsRequested.set(bare, wanted);
+      if (wanted) {
+        versionsRequested.set(bare, wanted);
+        userPinned.set(bare, wanted);
+      }
       await visit(bare, 'user');
     } else {
       await visit(id, 'user');
@@ -216,8 +227,28 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
       // last one to write wins only after being narrowed against the rest. Without a
       // constraint the manifest's own default applies.
       const requested = versionsRequested.get(id);
+      const explicit = userPinned.get(id);
       let pinned = manifest;
-      if (requested) {
+      if (explicit) {
+        // A version the user typed. Checked against EVERY published version rather than the
+        // auto-selectable ones, because `yanked` means "must not be chosen automatically",
+        // and a version named by hand is not an automatic choice.
+        //
+        // It must also be REPORTED when it does not exist. Falling back to latest here meant
+        // `utool install my-tool@9.9.9` planned and installed a different version, exited 0,
+        // and said nothing - the one outcome a version pin exists to prevent.
+        if (manifest.versionNumbers.includes(explicit)) {
+          pinned = manifest.at(explicit);
+        } else {
+          problems.push({
+            code: 'E-VERSION-NOT-FOUND',
+            message:
+              `${id}: no version '${explicit}' is published ` +
+              `(available: ${manifest.versionNumbers.join(', ') || 'none'})`,
+            toolId: id,
+          });
+        }
+      } else if (requested) {
         const picked = manifest.resolve([requested]);
         // resolve() returning nothing means the pin is unsatisfiable; that was already
         // reported where the constraint was read, so fall back rather than throw here.

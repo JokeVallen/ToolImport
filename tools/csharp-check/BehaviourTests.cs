@@ -18,7 +18,7 @@
 
 using System;
 using System.Collections.Generic;
-using DevCat.ToolImport.Editor;
+using ToolImport.Editor;
 
 namespace CsharpCheck
 {

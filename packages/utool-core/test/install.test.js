@@ -248,3 +248,95 @@ test('an unsatisfiable inject is reported', registryTest(), async (t) => {
   assert.ok(problem, `expected an unsatisfied inject, got ${JSON.stringify(plan.problems)}`);
   assert.equal(problem.capability, 'nobody.provides.this');
 });
+
+/**
+ * A tool publishing several versions, one of them withdrawn.
+ *
+ * Version pinning is the reason `versions[]` exists at all, so the fixtures for it need
+ * more than one release and a yanked one to tell "explicitly requested" apart from
+ * "chosen automatically".
+ */
+function multiVersionTool(id, { yanked = [], latest = '1.0.0' } = {}) {
+  const entry = (version) => ({
+    version,
+    yanked: yanked.includes(version),
+    releasedAt: '2026-01-01',
+    targets: {
+      unity: {
+        requirements: { minEngineVersion: '2019.4' },
+        artifact: {
+          type: 'external',
+          source: 'git',
+          url: `https://example.com/${id}.git`,
+          ref: `v${version}`,
+        },
+      },
+    },
+  });
+
+  return toManifest({
+    kind: 'tool',
+    formatVersion: '3',
+    id,
+    displayName: id,
+    type: 'tool-library',
+    description: `${id} publishes several versions`,
+    latest,
+    versions: [entry('1.0.0'), entry('0.9.0')],
+  });
+}
+
+test('without a pin the latest release is planned', registryTest(), async () => {
+  const tool = multiVersionTool('multi');
+  const plan = await resolveSelection(['multi'], async () => tool, { engine: 'unity' });
+  assert.equal(plan.steps[0].manifest.version, '1.0.0');
+  assert.equal(plan.problems.length, 0, JSON.stringify(plan.problems));
+});
+
+test('an explicit pin installs that version, not latest', registryTest(), async () => {
+  const tool = multiVersionTool('multi');
+  const plan = await resolveSelection(['multi@0.9.0'], async () => tool, { engine: 'unity' });
+
+  // The regression this exists for: the pin used to be silently ignored and latest installed.
+  assert.equal(plan.steps[0].manifest.version, '0.9.0');
+  assert.equal(plan.steps[0].requestedVersion, '0.9.0');
+  assert.equal(plan.problems.length, 0, JSON.stringify(plan.problems));
+});
+
+/**
+ * The dangerous case: a pin that cannot be honoured must never be quietly swapped.
+ *
+ * It used to plan and install `latest` and exit 0 with no message, which is the one
+ * outcome a version pin exists to prevent - the user asked for 9.9.9 and would have got
+ * 1.0.0 while being told everything was fine.
+ */
+test('a pin naming an unpublished version is reported, not swapped', registryTest(), async () => {
+  const tool = multiVersionTool('multi');
+  const plan = await resolveSelection(['multi@9.9.9'], async () => tool, { engine: 'unity' });
+
+  const problem = plan.problems.find((entry) => entry.code === 'E-VERSION-NOT-FOUND');
+  assert.ok(problem, `expected a version problem, got ${JSON.stringify(plan.problems)}`);
+  assert.equal(problem.toolId, 'multi');
+  // The message must name what WAS available, or the user cannot correct the pin.
+  assert.match(problem.message, /9\.9\.9/);
+  assert.match(problem.message, /1\.0\.0/);
+});
+
+/**
+ * `yanked` means "never chosen automatically". A version named by hand is not automatic,
+ * so an explicit pin still reaches it - a receipt may already reference it.
+ */
+test('an explicit pin reaches a withdrawn release', registryTest(), async () => {
+  const tool = multiVersionTool('multi', { yanked: ['0.9.0'] });
+  const plan = await resolveSelection(['multi@0.9.0'], async () => tool, { engine: 'unity' });
+
+  assert.equal(plan.steps[0].manifest.version, '0.9.0');
+  assert.equal(plan.problems.length, 0, JSON.stringify(plan.problems));
+});
+
+test('a withdrawn release is still not chosen on its own', registryTest(), async () => {
+  const tool = multiVersionTool('multi', { yanked: ['1.0.0'], latest: '0.9.0' });
+  const plan = await resolveSelection(['multi'], async () => tool, { engine: 'unity' });
+
+  assert.equal(plan.steps[0].manifest.version, '0.9.0');
+});

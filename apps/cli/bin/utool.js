@@ -132,7 +132,12 @@ async function main(argv) {
     process.stdout.write(USAGE);
     return EXIT.OK;
   }
-  if (flags.version) {
+  // `-v` alone asks for the CLI's own version and sets a boolean. `--version <v>` takes a
+  // value and pins a TOOL version. Both landed on `flags.version`, and testing it for
+  // truthiness made the pin print "utool 0.1.0" and exit - so the advertised
+  // `--version <v>` silently did the opposite of what it says. Only the boolean is the
+  // CLI's own version; a string is a pin, handled where tools are resolved.
+  if (flags.version === true) {
     process.stdout.write('utool 0.1.0\n');
     return EXIT.OK;
   }
@@ -934,6 +939,17 @@ async function buildPlan(source, requested, flags, adapters, host) {
     } else {
       out.line('host: not declared, platform floors are not enforced (pass --host-unity/--host-dotnet)');
     }
+  }
+
+  // `--version <v>` pins the tool the user NAMED, leaving dependencies to resolve normally.
+  // It is translated into the `id@version` form the resolver already understands rather
+  // than adding a second pinning path: one mechanism means the documented
+  // `utool plan my-tool@1.0.0` and the flag cannot drift apart.
+  //
+  // An id that already carries `@` wins, because it is the more specific request.
+  if (typeof flags.version === 'string' && flags.version !== '') {
+    requested = requested.map((id) =>
+      id.includes('@') ? id : `${id}@${flags.version}`);
   }
 
   const index = await source.fetchIndex();

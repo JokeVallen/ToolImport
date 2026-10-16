@@ -18,7 +18,10 @@ const BOOLEAN_FLAGS = new Set([
   'no-hash',
   'write-index',
   'help',
-  'version',
+  // NOT `version`. `--version <v>` pins a tool version and therefore TAKES a value; listing
+  // it here made the parser swallow the flag as a boolean and push the version out as a
+  // stray positional, so the advertised pin never reached the resolver. The CLI's own
+  // version is asked for with `-v`, which is handled separately.
 ]);
 
 /**
