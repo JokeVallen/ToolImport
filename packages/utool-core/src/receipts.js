@@ -2,7 +2,7 @@
  * Install receipts, and the version pointer that makes an update reversible.
  *
  * One receipt per installed TOOL, under
- * `<project>/Library/DevCatToolRegistry/receipts/<toolId>.yaml`, is what makes
+ * `<project>/Library/ToolImport/receipts/<toolId>.yaml`, is what makes
  * uninstall exact: a file is removed only when no remaining receipt still claims
  * it, so a shared file survives until the last dependent leaves.
  *
@@ -19,14 +19,16 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, renameSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { stringify as stringifyYaml } from 'yaml';
 
 import { ArtifactError, DocumentError } from './errors.js';
-import { FILE_NAMES, FORMAT_VERSION, KIND, RECEIPT_DIR } from './format.js';
+import {
+  FILE_NAMES, FORMAT_VERSION, KIND, LEGACY_RECEIPT_DIRS, RECEIPT_DIR,
+} from './format.js';
 import { checkHeader, loadUtool } from './loader.js';
 
 /**
@@ -49,6 +51,42 @@ export class ReceiptStore {
   constructor(projectRoot) {
     this.projectRoot = path.resolve(projectRoot);
     this.dir = path.join(this.projectRoot, RECEIPT_DIR);
+    this.#legacyDirs = LEGACY_RECEIPT_DIRS.map((relative) => path.join(this.projectRoot, relative));
+    this.#migrateLegacy();
+  }
+
+  #legacyDirs;
+  #migrationDone = false;
+
+  /**
+   * Move a receipts directory written under an older path into the current one.
+   *
+   * A rename rather than a copy, so a half-finished migration cannot leave two directories
+   * that both look authoritative. It runs once, in the constructor, before anything reads.
+   *
+   * If the current directory already exists the legacy one is left alone: that means a newer
+   * install has already written receipts here, and guessing which of two directories wins would
+   * be worse than doing nothing.
+   *
+   * If the rename fails, `dir` is pointed at the legacy directory instead, so the store behaves
+   * exactly as it did before the rename. Losing track of installed files is the one outcome
+   * this whole code path exists to avoid, so a failure degrades to "old behaviour" rather than
+   * to "no receipts".
+   */
+  #migrateLegacy() {
+    if (this.#migrationDone) return;
+    this.#migrationDone = true;
+    if (existsSync(this.dir)) return;
+
+    for (const legacy of this.#legacyDirs) {
+      if (!existsSync(legacy)) continue;
+      try {
+        renameSync(legacy, this.dir);
+      } catch {
+        this.dir = legacy;
+      }
+      return;
+    }
   }
 
   /** @returns {string} absolute path of one tool's receipt */
@@ -104,7 +142,7 @@ export class ReceiptStore {
     };
 
     const header =
-      '# Import receipt written by the DevCatToolRegistry import tool.\n' +
+      '# Import receipt written by the ToolRegistry import tool.\n' +
       '# Do not hand-edit: it drives uninstall, reference counting and rollback.\n' +
       '# previousSha256 is the version pointer: the artifact this install replaced.\n';
     const target = this.pathFor(receipt.toolId);

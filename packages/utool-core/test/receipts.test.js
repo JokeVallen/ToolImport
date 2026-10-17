@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -56,8 +56,67 @@ test('a receipt is written as a valid v3 document and read back', async (t) => {
   assert.equal(receipt.previousSha256, null);
 });
 
-test('a cross-engine install is still ONE receipt', async (t) => {
+test('receipts written under the old directory are migrated on first use', async (t) => {
   const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  // Simulate a project installed before the rename: write a receipt the current way, then move
+  // the directory to where the old build would have put it.
+  const before = new ReceiptStore(project);
+  await before.write(
+    baseReceipt({
+      toolId: 'legacy-tool',
+      version: '0.9.0',
+      artifactSha256: 'a'.repeat(64),
+      installedFiles: ['Assets/Legacy/One.cs'],
+    }),
+  );
+
+  const legacyDir = path.join(project, 'Library', 'DevCatToolRegistry', 'receipts');
+  await mkdir(path.dirname(legacyDir), { recursive: true });
+  await rename(before.dir, legacyDir);
+  assert.equal(existsSync(path.join(project, 'Library', 'ToolImport', 'receipts')), false);
+
+  // A store built now must find it, and must leave the directory where the current build
+  // expects it - otherwise every later write lands somewhere no reader looks.
+  const store = new ReceiptStore(project);
+  const list = await store.list();
+  assert.equal(list.length, 1, 'the migrated receipt must be visible');
+  assert.equal(list[0].toolId, 'legacy-tool');
+  assert.equal(list[0].version, '0.9.0');
+
+  assert.equal(existsSync(path.join(project, 'Library', 'ToolImport', 'receipts')), true);
+  assert.equal(existsSync(legacyDir), false, 'the legacy directory must be moved, not copied');
+
+  // The migrated receipt still drives uninstall: the installed files are what it deletes.
+  const read = await store.read('legacy-tool');
+  assert.deepEqual(read.installedFiles, ['Assets/Legacy/One.cs']);
+});
+
+test('a legacy directory never wins over receipts this build wrote', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await store.write(
+    baseReceipt({
+      toolId: 'current-tool',
+      version: '1.0.0',
+      artifactSha256: 'b'.repeat(64),
+      installedFiles: ['Assets/Current/One.cs'],
+    }),
+  );
+
+  // A leftover legacy directory must not displace receipts written by this build.
+  const legacyDir = path.join(project, 'Library', 'DevCatToolRegistry', 'receipts');
+  await mkdir(legacyDir, { recursive: true });
+
+  const reopened = new ReceiptStore(project);
+  const list = await reopened.list();
+  assert.deepEqual(list.map((receipt) => receipt.toolId), ['current-tool']);
+});
+
+test('a cross-engine install is still ONE receipt', async (t) => {  const project = await tempProject();
   t.after(() => rm(project, { recursive: true, force: true }));
 
   const store = new ReceiptStore(project);

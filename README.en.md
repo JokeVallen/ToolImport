@@ -1,6 +1,6 @@
-# DevCatToolRegistry import tool
+# ToolRegistry import tool
 
-The companion tool for [DevCatToolRegistry](../DevCatToolRegistry): browse the
+The companion tool for [ToolRegistry](../ToolRegistry): browse the
 registry, verify a payload, install it, and record a receipt so it can be removed
 cleanly later.
 
@@ -17,7 +17,7 @@ cleanly later.
 | [Changelog](CHANGELOG.en.md) | [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md) |
 
 The normative data contract lives in the registry repository:
-[`../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md`](../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md).
+[`../ToolRegistry/docs/FRONTEND-INTEGRATION.en.md`](../ToolRegistry/docs/FRONTEND-INTEGRATION.en.md).
 This repository only implements it.
 
 ---
@@ -68,10 +68,10 @@ output records instead of in-memory objects.
 ```pwsh
 npm install                                          # the only dependency is `yaml`
 
-node apps/cli/bin/utool.js list --registry ../DevCatToolRegistry
-node apps/cli/bin/utool.js show core-editor-utils  --registry ../DevCatToolRegistry
-node apps/cli/bin/utool.js plan editor-tool-selection-history --registry ../DevCatToolRegistry
-node apps/cli/bin/utool.js validate ../DevCatToolRegistry
+node apps/cli/bin/utool.js list --registry ../ToolRegistry
+node apps/cli/bin/utool.js show core-editor-utils  --registry ../ToolRegistry
+node apps/cli/bin/utool.js plan editor-tool-selection-history --registry ../ToolRegistry
+node apps/cli/bin/utool.js validate ../ToolRegistry
 npm test
 ```
 
@@ -123,7 +123,7 @@ validation, dependency and capability resolution (including cycles, optional
 dependencies, platform gates, provider selection and unsatisfiable injects),
 artifact verification, install with receipts, the rollback version pointer, and
 shared-file reference counting. It also validates the real registry in
-`../DevCatToolRegistry`, so a format change that breaks the shipped payloads fails
+`../ToolRegistry`, so a format change that breaks the shipped payloads fails
 here.
 
 The CLI suite covers argument parsing, including the repeatable-flag bug where
@@ -136,12 +136,12 @@ with no Unity installed. That harness is a check, not a shipped component.
 ## Relationship to the registry repository
 
 ```text
-../DevCatToolRegistry          the data: .yaml documents and sealed artifacts
+../ToolRegistry          the data: .yaml documents and sealed artifacts
 this directory                 the code: parsing, verification, installation
 ```
 
 The only interface between them is the data contract in
-[`../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md`](../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md)
+[`../ToolRegistry/docs/FRONTEND-INTEGRATION.en.md`](../ToolRegistry/docs/FRONTEND-INTEGRATION.en.md)
 plus `schema/tool.schema.json`. Either side can be replaced as long as that holds.
 
 ## Not yet implemented

@@ -1,9 +1,9 @@
 {
-  "name": "@devcattoolregistry/import-cli",
+  "name": "@toolimport/import-cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "utool: the backend CLI that inspects, validates and installs DevCatToolRegistry payloads without Unity running.",
+  "description": "utool: the backend CLI that inspects, validates and installs ToolRegistry payloads without Unity running.",
   "license": "MIT",
   "bin": {
     "utool": "bin/utool.js"
@@ -12,6 +12,6 @@
     "node": ">=20.11"
   },
   "dependencies": {
-    "@devcattoolregistry/utool-core": "*"
+    "@toolimport/utool-core": "*"
   }
 }

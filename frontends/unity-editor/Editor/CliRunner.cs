@@ -74,7 +74,7 @@ namespace ToolImport.Editor
             var directory = new DirectoryInfo(UnityEngine.Application.dataPath);
             for (int depth = 0; directory != null && depth < 6; depth++)
             {
-                string candidate = Path.Combine(directory.FullName, "UnityToolImport", "apps", "cli", "bin", "utool.js");
+                string candidate = Path.Combine(directory.FullName, "ToolImport", "apps", "cli", "bin", "utool.js");
                 if (File.Exists(candidate)) return candidate;
                 directory = directory.Parent;
             }
@@ -135,7 +135,7 @@ namespace ToolImport.Editor
                     StdErr =
                         "The utool backend CLI was not found.\n" +
                         $"Set the '{CLI_PATH}' environment variable to the absolute path of " +
-                        "apps/cli/bin/utool.js, or place a UnityToolImport checkout beside this project.",
+                        "apps/cli/bin/utool.js, or place a ToolImport checkout beside this project.",
                 });
             }
 

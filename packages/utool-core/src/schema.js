@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 // on purpose: the validator itself is pure, so the same code validates a manifest in Node
 // and in a browser. That is what lets the standalone HTML checker use these rules instead
 // of reimplementing them. The import above is tolerated in a browser via the shim the
-// HTML page installs; see DevCatToolRegistry/tools/validate.html.
+// HTML page installs; see ToolRegistry/tools/validate.html.
 
 const KNOWN_KEYWORDS = new Set([
   '$schema', '$id', '$comment', 'title', 'description', 'default', 'examples',

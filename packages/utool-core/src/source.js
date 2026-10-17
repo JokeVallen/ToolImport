@@ -156,7 +156,15 @@ export class HttpRegistrySource {
     }
 
     if (response.status === 404) {
-      throw new DocumentError('E-NOT-FOUND', `${relativePath} not found in ${this.describe}`);
+      // A 404 on the INDEX is usually not "the registry is missing one file": it means the
+      // URL is a default nobody has published to, or points at the wrong branch/owner. Saying
+      // only "not found" left a first-time user with no next step, so the index case names the
+      // two things that actually fix it.
+      const hint = relativePath === FILE_NAMES.INDEX
+        ? ' - if this is a default remote, it has nothing published yet;'
+          + ' pass --registry <path to a checkout> or set the registry in settings'
+        : '';
+      throw new DocumentError('E-NOT-FOUND', `${relativePath} not found in ${this.describe}${hint}`);
     }
     if (!response.ok) {
       throw new DocumentError(

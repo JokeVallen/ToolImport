@@ -5,7 +5,7 @@ All notable changes to the import tool are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions
 of the tool are its own; the metadata format it reads is versioned separately by
 `formatVersion`, documented in
-[`../DevCatToolRegistry/docs/SPEC.en.md`](../DevCatToolRegistry/docs/SPEC.en.md).
+[`../ToolRegistry/docs/SPEC.en.md`](../ToolRegistry/docs/SPEC.en.md).
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
@@ -58,7 +58,7 @@ area rather than by release date. Nothing here has been published.
 - Tests for the core and the CLI: document parsing, semver-lite constraints, registry
   validation, dependency and capability resolution, artifact verification, install with
   receipts, the rollback pointer, shared-file reference counting, and argument parsing.
-  The core suite validates the **real** registry in `../DevCatToolRegistry`.
+  The core suite validates the **real** registry in `../ToolRegistry`.
 
 ### Changed
 
@@ -68,7 +68,7 @@ area rather than by release date. Nothing here has been published.
 - The Unity front end moved from `apps/unity-editor` to `frontends/unity-editor`, so the
   layout reads as one directory per engine on each side of the seam.
 - The root workspace name was corrected from `unitydevcommonlib-import-tool` to
-  `devcattoolregistry-import-tool` after the repository rename.
+  `toolimport` after the repository rename.
 
 ### Fixed
 

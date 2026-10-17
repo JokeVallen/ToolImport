@@ -27,7 +27,7 @@
 
 import { gunzipSync } from 'node:zlib';
 
-import { ArtifactError } from '@devcattoolregistry/utool-core';
+import { ArtifactError } from '@toolimport/utool-core';
 
 const UNITYPACKAGE_FORMAT = 'unitypackage';
 

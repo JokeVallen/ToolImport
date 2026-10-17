@@ -4,7 +4,7 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)。工具自身有独立版本号；它读取的
 元信息格式由 `formatVersion` 单独编号，见
-[`../DevCatToolRegistry/docs/SPEC.zh-CN.md`](../DevCatToolRegistry/docs/SPEC.zh-CN.md)。
+[`../ToolRegistry/docs/SPEC.zh-CN.md`](../ToolRegistry/docs/SPEC.zh-CN.md)。
 
 **语言**：[中文](CHANGELOG.zh-CN.md) · [English](CHANGELOG.en.md) · [返回目录](README.md)
 
@@ -45,7 +45,7 @@
 - 能力提供者选择：`--auto-provider` 让解析器通过**确定性**地选定提供者（id 最小者胜出）来满足
   `injects`，并报出备选项。**默认关闭**，因为静默塞进用户没要的工具比说明缺口更糟。
 - 核心与 CLI 的测试：文档解析、semver-lite 约束、注册库校验、依赖与能力求解、制品校验、带回执的
-  安装、回滚指针、共享文件引用计数、参数解析。核心套件会校验 `../DevCatToolRegistry` 里的
+  安装、回滚指针、共享文件引用计数、参数解析。核心套件会校验 `../ToolRegistry` 里的
   **真实**注册库。
 
 ### 变更
@@ -55,7 +55,7 @@
 - Unity 前端从 `apps/unity-editor` 移到 `frontends/unity-editor`，使接缝两侧的布局都读作
   「一个引擎一个目录」。
 - 仓库改名后，根 workspace 名从 `unitydevcommonlib-import-tool` 更正为
-  `devcattoolregistry-import-tool`。
+  `toolimport`。
 
 ### 修复
 

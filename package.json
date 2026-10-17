@@ -1,9 +1,9 @@
 {
-  "name": "devcattoolregistry-import-tool",
+  "name": "toolimport",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Engine-agnostic backend for the DevCatToolRegistry import tool: parses the .yaml format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
+  "description": "Engine-agnostic backend for the ToolRegistry import tool: parses the .yaml format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
   "license": "MIT",
   "author": "DevCat",
   "engines": {
@@ -20,7 +20,7 @@
     "check:csharp": "node tools/csharp-check.mjs",
     "check:tracked": "node tools/check-tracked.mjs",
     "cli": "node apps/cli/bin/utool.js",
-    "validate": "node apps/cli/bin/utool.js validate ../DevCatToolRegistry"
+    "validate": "node apps/cli/bin/utool.js validate ../ToolRegistry"
   },
   "dependencies": {
     "yaml": "^2.6.1"

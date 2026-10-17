@@ -1,5 +1,5 @@
 {
-  "name": "@devcat/provider-engine-godot",
+  "name": "@toolimport/provider-engine-godot",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,6 +13,6 @@
     "node": ">=20.11"
   },
   "dependencies": {
-    "@devcattoolregistry/utool-core": "*"
+    "@toolimport/utool-core": "*"
   }
 }

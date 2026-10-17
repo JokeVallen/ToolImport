@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * utool -- command line interface to the DevCatToolRegistry import-tool backend.
+ * utool -- command line interface to the ToolRegistry import-tool backend.
  *
  * This is the seam that keeps the tool usable when Unity itself is unusable: if a
  * project has compile errors, no editor assembly loads and the Unity front end
@@ -33,7 +33,7 @@ import {
   toManifest,
   SchemaValidator,
   validateRegistry,
-} from '@devcattoolregistry/utool-core';
+} from '@toolimport/utool-core';
 
 import { createRequirementChecker, loadAdapters } from '../lib/adapters.js';
 import { parseArgs } from '../lib/args.js';
@@ -50,7 +50,7 @@ const COMMANDS = new Set([
   'digest',
 ]);
 
-const USAGE = `utool -- DevCatToolRegistry import tool (backend CLI)
+const USAGE = `utool -- ToolRegistry import tool (backend CLI)
 
 Usage: utool <command> [options]
 
@@ -79,7 +79,7 @@ Options
   --search <text>         list: only tools whose DISPLAY NAME contains this text
   --version <v>           install this version of a tool instead of the default
   --registry <path|url>   registry location. Default: found automatically - the
-                          conventional DevCatToolRegistry near the working
+                          conventional ToolRegistry near the working
                           directory, or any directory holding both index.yaml
                           and payloads/
   --mirror <url>          an additional host serving the SAME registry layout;
@@ -154,7 +154,7 @@ async function main(argv) {
     flags.registry ??
     (command === 'validate' && positionals[0] ? positionals[0] : null) ??
     findRegistry(process.cwd()) ??
-    path.resolve(process.cwd(), '..', 'DevCatToolRegistry');
+    path.resolve(process.cwd(), '..', 'ToolRegistry');
 
   switch (command) {
     case 'list':
@@ -1021,7 +1021,7 @@ function engineOf(flags) {
  *
  * Looked for rather than named, for the same reason the registry's own tooling searches for its
  * core: a directory name is not part of the contract. This default previously named
- * `UnityDevCommonLib`, which had been renamed to `DevCatToolRegistry` commits earlier, so the
+ * `UnityDevCommonLib`, which had been renamed to `ToolRegistry` commits earlier, so the
  * documented default pointed at a directory that no longer existed and every command without an
  * explicit --registry failed with a missing-index error that had nothing to do with the real cause.
  *
@@ -1034,13 +1034,25 @@ function isRegistry(dir) {
     && existsSync(path.join(dir, 'payloads'));
 }
 
+/**
+ * Directory names a registry checkout may have.
+ *
+ * `ToolRegistry` is current; `DevCatToolRegistry` is the former name and is still probed so a
+ * checkout that has not been renamed keeps working. A directory name is not part of the
+ * contract - that is why the search below also falls back to sniffing - but following a rename
+ * by breaking every existing checkout would be a poor trade for tidiness.
+ */
+const REGISTRY_DIR_NAMES = ['ToolRegistry', 'DevCatToolRegistry'];
+
 function findRegistry(cwd) {
-  // The conventional name first, so a checkout is preferred over an unrelated directory that
+  // The conventional names first, so a checkout is preferred over an unrelated directory that
   // happens to look like a registry.
   const roots = [cwd, path.resolve(cwd, '..'), path.resolve(cwd, '..', '..')];
   for (const root of roots) {
-    const conventional = path.join(root, 'DevCatToolRegistry');
-    if (isRegistry(conventional)) return conventional;
+    for (const name of REGISTRY_DIR_NAMES) {
+      const conventional = path.join(root, name);
+      if (isRegistry(conventional)) return conventional;
+    }
   }
 
   for (const root of roots) {

@@ -147,7 +147,7 @@ C# 侧**不含任何格式逻辑**：不解析 `.yaml`、不做依赖求解、�
 
 | 类型 | 职责 |
 | --- | --- |
-| `CliRunner` | 定位并运行 CLI；`UTOOL_CLI` 或从工程向上找 `UnityToolImport/apps/cli/bin/utool.js`；用 `ArgumentList` 避免路径空格问题 |
+| `CliRunner` | 定位并运行 CLI；`UTOOL_CLI` 或从工程向上找 `ToolImport/apps/cli/bin/utool.js`；用 `ArgumentList` 避免路径空格问题 |
 | `BackendRecords` | 解析行记录流；字段顺序必须与 `records.js` 一致 |
 | `ImportToolWindow` | 工具栏（注册库地址、引擎选择器）、工具列表、按 target 分块的详情面板、计划确认、安装 |
 
@@ -174,8 +174,8 @@ frontends/unity-editor/Editor/
 不会运行——窗口打不开，也帮不上忙。但后端可以：
 
 ```pwsh
-node apps/cli/bin/utool.js validate ../DevCatToolRegistry
-node apps/cli/bin/utool.js plan core-editor-utils --registry ../DevCatToolRegistry
+node apps/cli/bin/utool.js validate ../ToolRegistry
+node apps/cli/bin/utool.js plan core-editor-utils --registry ../ToolRegistry
 node apps/cli/bin/utool.js install core-editor-utils --project "C:\path\to\UnityProject"
 ```
 
@@ -185,9 +185,9 @@ node apps/cli/bin/utool.js install core-editor-utils --project "C:\path\to\Unity
 
 | 找什么 | 查找方式 |
 | --- | --- |
-| CLI 脚本 | `UTOOL_CLI` 环境变量；否则从工程向上走，找 `UnityToolImport` 检出 |
+| CLI 脚本 | `UTOOL_CLI` 环境变量；否则从工程向上走，找 `ToolImport` 检出 |
 | Node | `UTOOL_NODE` 环境变量；否则用 `PATH` 上的 `node` |
-| 注册库 | `UTOOL_REGISTRY` 环境变量；否则找兄弟目录 `DevCatToolRegistry`；再否则用已发布的 GitHub raw URL |
+| 注册库 | `UTOOL_REGISTRY` 环境变量；否则找兄弟目录 `ToolRegistry`；再否则用已发布的 GitHub raw URL |
 
 等到前端成为 UPM 包之后，把 `Editor/` 放进工程（或按 Git URL 添加该包），并在后端检出里跑一次
 `npm install`，让 `yaml` 依赖就位。
@@ -213,5 +213,5 @@ node apps/cli/bin/utool.js install core-editor-utils --project "C:\path\to\Unity
 | 回执记录**文件实际所在**的路径 | 否则卸载会查错位置并留下残留 |
 
 规范性数据契约见
-[`../../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md`](../../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md)，
+[`../../ToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md`](../../ToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md)，
 放置理由见 [`decisions.zh-CN.md`](decisions.zh-CN.md)。

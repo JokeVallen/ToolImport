@@ -126,7 +126,7 @@ namespace ToolImport.Editor
             if (string.IsNullOrEmpty(cli))
             {
                 EditorGUILayout.HelpBox("The backend CLI was not found, so the main window cannot do anything. " +
-                    "Set it above, or place a UnityToolImport checkout beside this project.",
+                    "Set it above, or place a ToolImport checkout beside this project.",
                     MessageType.Error);
             }
         }

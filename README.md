@@ -1,6 +1,6 @@
-# DevCatToolRegistry 导入工具
+# ToolRegistry 导入工具
 
-[DevCatToolRegistry](../DevCatToolRegistry) 的配套工具：浏览注册库、校验制品、安装，并写下回执，
+[ToolRegistry](../ToolRegistry) 的配套工具：浏览注册库、校验制品、安装，并写下回执，
 以便日后能干净地卸载。
 
 **语言**：[中文](README.md) · [English](README.en.md)
@@ -47,10 +47,10 @@ frontends/
 ```pwsh
 npm install                                          # 唯一依赖是 `yaml`
 
-node apps/cli/bin/utool.js list --registry ../DevCatToolRegistry
-node apps/cli/bin/utool.js show core-editor-utils  --registry ../DevCatToolRegistry
-node apps/cli/bin/utool.js plan editor-tool-selection-history --registry ../DevCatToolRegistry
-node apps/cli/bin/utool.js validate ../DevCatToolRegistry
+node apps/cli/bin/utool.js list --registry ../ToolRegistry
+node apps/cli/bin/utool.js show core-editor-utils  --registry ../ToolRegistry
+node apps/cli/bin/utool.js plan editor-tool-selection-history --registry ../ToolRegistry
+node apps/cli/bin/utool.js validate ../ToolRegistry
 npm test
 ```
 
@@ -96,7 +96,7 @@ npm run check:csharp    # 在没有 Unity 的机器上对 Unity C# 做类型检�
 
 核心套件覆盖：文档解析、semver-lite 约束、注册库校验、依赖与能力求解（含成环、可选依赖、平台
 门禁、提供者选择、无法满足的注入）、制品校验、带回执的安装、回滚版本指针、共享文件引用计数。
-它还会校验 `../DevCatToolRegistry` 里的**真实**注册库，所以一旦格式改动破坏了已发布 payload，
+它还会校验 `../ToolRegistry` 里的**真实**注册库，所以一旦格式改动破坏了已发布 payload，
 这里立刻失败。
 
 CLI 套件覆盖参数解析，其中包括那个可重复标志的缺陷：`--also-engine godot` 曾被解析成
@@ -108,12 +108,12 @@ Unity C# 由 `tools/csharp-check.mjs` 用最小 Unity 桩类型做类型检查�
 ## 与注册库仓库的关系
 
 ```text
-../DevCatToolRegistry          数据：.yaml 文档与封存制品
+../ToolRegistry          数据：.yaml 文档与封存制品
 本目录                          代码：解析、校验、安装
 ```
 
 两者之间唯一的接口是
-[`../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md`](../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md)
+[`../ToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md`](../ToolRegistry/docs/FRONTEND-INTEGRATION.zh-CN.md)
 里的数据契约，加上 `schema/tool.schema.json`。只要契约不变，任一侧都可以被替换。
 
 ## 尚未实现

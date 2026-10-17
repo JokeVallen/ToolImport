@@ -81,7 +81,7 @@ export const CORE_ARCHIVE_FORMATS = Object.freeze(['zip', 'tgz', 'tar.gz', 'tar.
  * Leading bytes that identify each core archive format.
  *
  * Plain arrays of numbers rather than Buffers, because this module is embedded verbatim into the
- * standalone browser validator in DevCatToolRegistry, where `Buffer` does not exist. A top-level
+ * standalone browser validator in ToolRegistry, where `Buffer` does not exist. A top-level
  * `Buffer.from(...)` there throws on load, which kills the entire page script before a single event
  * handler is attached - the file picker and the drop zone both go dead, with nothing on screen to
  * say why. Keeping the core free of Node-only globals is what stops that class of failure.
@@ -104,7 +104,18 @@ export const FORMAT_EXTENSION = Object.freeze({
 export const UNPACK = Object.freeze({ AUTO: 'auto', NONE: 'none' });
 
 /** Where receipts live inside a consumer project. Library/ is never committed. */
-export const RECEIPT_DIR = 'Library/DevCatToolRegistry/receipts';
+export const RECEIPT_DIR = 'Library/ToolImport/receipts';
+
+/**
+ * Receipt directories written by earlier versions, newest first.
+ *
+ * A receipt is the ONLY record of which files a tool owns, so a project that installed
+ * something before the rename must keep being able to uninstall it. Rather than asking anyone
+ * to move files by hand, `ReceiptStore` migrates the directory on first use.
+ */
+export const LEGACY_RECEIPT_DIRS = Object.freeze([
+  'Library/DevCatToolRegistry/receipts',
+]);
 
 export const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const ENGINE_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;

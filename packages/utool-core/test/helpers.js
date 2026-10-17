@@ -26,7 +26,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  *   1. UTOOL_TEST_REGISTRY, for a layout this cannot guess;
  *   2. a sibling directory that looks like a registry (index.yaml + payloads/).
  *
- * The name is deliberately not hardcoded. `DevCatToolRegistry` was assumed by
+ * The name is deliberately not hardcoded. `ToolRegistry` was assumed by
  * path before, so renaming or relocating the data repository broke the tests with
  * `E-INDEX-MISSING` -- a message about the registry's contents, when the real
  * problem was that the path no longer existed. A registry is identified by its

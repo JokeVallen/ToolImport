@@ -8,8 +8,8 @@
 
 ## D-1 —— 导入工具放在注册库仓库之外
 
-**决定。** 编辑器前端开发在 `UnityToolImport/`，一个带独立本地 git 历史的兄弟目录，而不是放在
-`DevCatToolRegistry` 里。
+**决定。** 编辑器前端开发在 `ToolImport/`，一个带独立本地 git 历史的兄弟目录，而不是放在
+`ToolRegistry` 里。
 
 **理由。**
 
@@ -24,7 +24,8 @@
 UPM 包」会更简单。
 
 **状态。** 按选择**尚未推送**到远程。若要发布，建议形态是一个 UPM 包
-（`com.devcat.devcattoolregistry.importtool`）。
+（`com.devcat.toolimport`）。`com.devcat.` 这一段**保留**：仓库去掉了前缀，但 UPM id 的首段是
+命名空间的**归属**，不是工具名字本身；缩成 `com.toolimport` 等于宣称一个没人拥有的域名。
 
 ---
 

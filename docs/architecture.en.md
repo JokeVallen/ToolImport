@@ -164,7 +164,7 @@ dependencies, does not hash anything. It runs the CLI and renders the result.
 
 | Type | Responsibility |
 | --- | --- |
-| `CliRunner` | locate and run the CLI; `UTOOL_CLI`, or walk up from the project to `UnityToolImport/apps/cli/bin/utool.js`; uses `ArgumentList` so paths with spaces are safe |
+| `CliRunner` | locate and run the CLI; `UTOOL_CLI`, or walk up from the project to `ToolImport/apps/cli/bin/utool.js`; uses `ArgumentList` so paths with spaces are safe |
 | `BackendRecords` | parse the record stream; field order must match `records.js` |
 | `ImportToolWindow` | toolbar (registry, engine selector), tool list, per-target detail panes, plan confirmation, install |
 
@@ -195,8 +195,8 @@ editor assembly, so nothing under `Editor/` runs — the window cannot open and 
 help. The backend can:
 
 ```pwsh
-node apps/cli/bin/utool.js validate ../DevCatToolRegistry
-node apps/cli/bin/utool.js plan core-editor-utils --registry ../DevCatToolRegistry
+node apps/cli/bin/utool.js validate ../ToolRegistry
+node apps/cli/bin/utool.js plan core-editor-utils --registry ../ToolRegistry
 node apps/cli/bin/utool.js install core-editor-utils --project "C:\path\to\UnityProject"
 ```
 
@@ -207,9 +207,9 @@ The window resolves the backend and the registry in this order:
 
 | What | Looked up as |
 | --- | --- |
-| CLI script | `UTOOL_CLI` env var, else a `UnityToolImport` checkout found by walking up from the project |
+| CLI script | `UTOOL_CLI` env var, else a `ToolImport` checkout found by walking up from the project |
 | Node | `UTOOL_NODE` env var, else `node` on `PATH` |
-| Registry | `UTOOL_REGISTRY` env var, else a sibling `DevCatToolRegistry` checkout, else the published GitHub raw URL |
+| Registry | `UTOOL_REGISTRY` env var, else a sibling `ToolRegistry` checkout, else the published GitHub raw URL |
 
 Once the front end is a UPM package, drop `Editor/` into the project (or add the package
 by Git URL) and run `npm install` inside the backend checkout so the `yaml` dependency
@@ -237,5 +237,5 @@ is present.
 | A receipt records where a file **is** | Otherwise uninstall searches the wrong place and leaves residue |
 
 The normative data contract is
-[`../../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md`](../../DevCatToolRegistry/docs/FRONTEND-INTEGRATION.en.md);
+[`../../ToolRegistry/docs/FRONTEND-INTEGRATION.en.md`](../../ToolRegistry/docs/FRONTEND-INTEGRATION.en.md);
 the reasoning for the directory layout is in [`decisions.en.md`](decisions.en.md).

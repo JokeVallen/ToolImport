@@ -9,8 +9,8 @@ the reasoning, and what would make us revisit it.
 
 ## D-1 — The import tool lives outside the registry repository
 
-**Decision.** The editor front end is developed in `UnityToolImport/`, a sibling
-directory with its own local git history, not inside `DevCatToolRegistry`.
+**Decision.** The editor front end is developed in `ToolImport/`, a sibling
+directory with its own local git history, not inside `ToolRegistry`.
 
 **Why.**
 
@@ -30,7 +30,9 @@ repositories becomes the dominant source of bugs; at that point a single reposit
 with two UPM packages would be simpler.
 
 **Status.** Not yet pushed to a remote, by choice. If published, the recommended shape
-is a UPM package (`com.devcat.devcattoolregistry.importtool`).
+is a UPM package (`com.devcat.toolimport`). The `com.devcat.` segment stays even though the
+repositories dropped the prefix: a UPM id's leading segment is namespace *ownership*, not a
+name on a tool, and shortening it to `com.toolimport` would claim a domain nobody owns.
 
 ---
 

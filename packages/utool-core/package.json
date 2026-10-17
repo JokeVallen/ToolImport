@@ -1,5 +1,5 @@
 {
-  "name": "@devcattoolregistry/utool-core",
+  "name": "@toolimport/utool-core",
   "version": "0.1.0",
   "private": true,
   "type": "module",

@@ -24,7 +24,7 @@ namespace ToolImport.Editor
     internal sealed class ImportToolWindow : EditorWindow
     {
         private const string RegistryPathVariable = "UTOOL_REGISTRY";
-        private const string DefaultRemoteRegistry = "https://raw.githubusercontent.com/JokeVallen/DevCatToolRegistry/main";
+        private const string DefaultRemoteRegistry = "https://raw.githubusercontent.com/JokeVallen/ToolRegistry/main";
 
         /// <summary>
         /// The registry listing, shared across window instances for this editor session.
@@ -2111,20 +2111,19 @@ namespace ToolImport.Editor
         /// Where to read the registry from.
         /// </summary>
         /// <remarks>
-        /// Order: the UTOOL_REGISTRY environment variable, a sibling checkout of
-        /// the registry repository (how this is used while developing), then the
-        /// published GitHub raw URL so a fresh clone of the tool just works.
-        /// </remarks>
-        /// <summary>
-        /// Where to read the registry from.
-        /// </summary>
-        /// <remarks>
         /// Order: the settings window, then the UTOOL_REGISTRY environment variable, then a
         /// sibling checkout, then the published URL.
         ///
         /// The settings window comes FIRST because it is the one a user sets deliberately:
         /// an environment variable is usually inherited from a shell, and a silent
         /// override of an explicit choice would be baffling.
+        ///
+        /// The published URL is a best-effort LAST resort and does not currently resolve -
+        /// the registry repository has nothing published beyond its initial commit, so a
+        /// fetch against it returns 404. It is kept because it becomes correct the moment the
+        /// registry is pushed, and because returning a URL produces a clearer failure (the
+        /// backend says which URL and what to do) than returning an empty string would. It
+        /// deliberately is NOT described as making a fresh clone work, because it does not.
         /// </remarks>
         private static string ResolveRegistryLocator()
         {
@@ -2157,16 +2156,35 @@ namespace ToolImport.Editor
             var directory = new DirectoryInfo(Application.dataPath);
             for (int depth = 0; directory != null && depth < 6; depth++)
             {
-                string candidate = Path.Combine(directory.FullName, "DevCatToolRegistry");
-                if (Directory.Exists(Path.Combine(candidate, "payloads")))
+                // Current name first, then the former one, so a checkout that has not been
+                // renamed keeps resolving. Renaming a directory must not break the projects
+                // that already point at it.
+                foreach (string name in RegistryDirectoryNames)
                 {
-                    return candidate;
+                    string candidate = Path.Combine(directory.FullName, name);
+                    if (Directory.Exists(Path.Combine(candidate, "payloads")))
+                    {
+                        return candidate;
+                    }
                 }
                 directory = directory.Parent;
             }
 
             return DefaultRemoteRegistry;
         }
+
+        /// <summary>
+        /// Directory names a registry checkout may have.
+        /// </summary>
+        /// <remarks>
+        /// Mirrors <c>REGISTRY_DIR_NAMES</c> in the backend CLI. The two must agree, which is
+        /// the cost of the probe living on both sides of the process boundary.
+        /// </remarks>
+        private static readonly string[] RegistryDirectoryNames =
+        {
+            "ToolRegistry",
+            "DevCatToolRegistry",
+        };
 
         /// <summary>
         /// Drop the cached listing, so the next open re-reads the registry.
