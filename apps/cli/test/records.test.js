@@ -136,6 +136,24 @@ test('capabilities and identity are still emitted', () => {
   assert.deepEqual(details(records, 'deprecated'), ['false']);
 });
 
+test('documentation is reported apart from the homepage', () => {
+  // Different places often enough that one cannot stand for both: a reader that only had
+  // homepage had no way to offer a docs link at all.
+  const records = capture(() => toolDetail(
+    { ...DOC, documentation: 'https://example.invalid/docs/' },
+    model(),
+  ));
+  assert.deepEqual(details(records, 'documentation'), ['https://example.invalid/docs/']);
+  assert.deepEqual(details(records, 'homepage'), ['https://example.invalid']);
+});
+
+test('an undeclared documentation URI is an empty field, not a missing record', () => {
+  // Absent must stay distinguishable from "this backend does not report documentation at
+  // all": the C# reader returns "" for a key it never saw, so the record is always emitted.
+  const records = capture(() => toolDetail(DOC, model()));
+  assert.deepEqual(details(records, 'documentation'), ['']);
+});
+
 test('a dependency carries its constraint, optionality and reason', () => {
   const records = capture(() => toolDetail(DOC, model()));
   const dependencies = records.filter((r) => r.type === 'DEPENDENCY').map((r) => r.fields);

@@ -141,6 +141,11 @@ export function toolDetail(manifest, model) {
   record('DETAIL', ['license', manifest.license]);
   record('DETAIL', ['author', manifest.author]);
   record('DETAIL', ['homepage', manifest.homepage]);
+  // Where the tool's documentation lives, which is not always its homepage: a repository
+  // root and a docs site are different places, and one link cannot stand for both. Emitted
+  // as an empty field when undeclared, so a reader cannot confuse "no documentation
+  // declared" with "this backend does not report documentation at all".
+  record('DETAIL', ['documentation', manifest.documentation ?? '']);
   record('DETAIL', ['deprecated', manifest.deprecated === true ? 'true' : 'false']);
 
   // Release metadata, which lives on the VERSION ENTRY rather than the top-level document,
