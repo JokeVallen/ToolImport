@@ -2131,10 +2131,34 @@ namespace ToolImport.Editor
                 ImportToolSettingsWindow.REGISTRY_PREF_KEY, string.Empty);
             if (!string.IsNullOrEmpty(fromSettings))
             {
-                return fromSettings;
+                // An override that no longer points anywhere must not win. The registry was
+                // renamed once already, and every project that had saved the old path would
+                // otherwise fail with "no index.yaml" while a perfectly good checkout sits
+                // beside it. A URL is taken on trust - only a local path can be checked.
+                if (IsUsableRegistryLocator(fromSettings))
+                {
+                    return fromSettings;
+                }
             }
 
             return ResolveRegistryLocatorForDisplay();
+        }
+
+        /// <summary>
+        /// Is a saved override still worth using?
+        /// </summary>
+        /// <remarks>
+        /// A local path must still hold <c>payloads/</c>, which is the same test the automatic
+        /// probe applies - so a stale path degrades to automatic resolution instead of to a
+        /// confusing failure. Anything URL-shaped is accepted without a check: reaching it is
+        /// the backend's problem, and a transient network failure is not a reason to silently
+        /// ignore what the user configured.
+        /// </remarks>
+        internal static bool IsUsableRegistryLocator(string locator)
+        {
+            if (string.IsNullOrEmpty(locator)) return false;
+            if (locator.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return true;
+            return Directory.Exists(Path.Combine(locator, "payloads"));
         }
 
         /// <summary>

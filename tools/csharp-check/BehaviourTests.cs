@@ -54,6 +54,7 @@ namespace CsharpCheck
             VersionsCarryTheLatestMarker();
             ListValuesMatchExactly();
             DependenciesAreMatchedByIdAlone();
+            StaleRegistryOverridesAreIgnored();
 
             Console.WriteLine(failures == 0
                 ? "record reader behaviour OK"
@@ -201,6 +202,47 @@ namespace CsharpCheck
             Check("a tool with no dependencies matches nothing",
                 !ImportToolWindow.DependsOnTool(
                     AvailableTool.FromFields(new[] { "lonely", "1.0.0", "tool-library" }), "anything"));
+        }
+
+        /// <summary>
+        /// A saved registry path that no longer exists must not be trusted.
+        /// </summary>
+        /// <remarks>
+        /// The registry was renamed once already. Every project that had saved the old path
+        /// would otherwise keep failing with "no index.yaml" while a perfectly good checkout sat
+        /// beside it, and nothing on screen would say the saved path was the problem.
+        /// </remarks>
+        private static void StaleRegistryOverridesAreIgnored()
+        {
+            string root = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "utool-locator-" + Guid.NewGuid().ToString("N"));
+            string real = System.IO.Path.Combine(root, "ToolRegistry");
+            string bare = System.IO.Path.Combine(root, "not-a-registry");
+
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(real, "payloads"));
+                System.IO.Directory.CreateDirectory(bare);
+
+                Check("a checkout holding payloads is usable",
+                    ImportToolWindow.IsUsableRegistryLocator(real));
+                Check("a directory without payloads is not usable",
+                    !ImportToolWindow.IsUsableRegistryLocator(bare),
+                    "a template or stray directory must not be mistaken for a registry");
+                Check("a path that does not exist is not usable",
+                    !ImportToolWindow.IsUsableRegistryLocator(System.IO.Path.Combine(root, "gone")));
+
+                // A URL cannot be checked without a request, and refusing it on an offline
+                // machine would silently ignore what the user configured.
+                Check("an https locator is taken on trust",
+                    ImportToolWindow.IsUsableRegistryLocator("https://example.invalid/reg"));
+                Check("an empty locator is not usable",
+                    !ImportToolWindow.IsUsableRegistryLocator(string.Empty));
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
         }
 
         private static void UnescapeHandlesTabAndNewline()
