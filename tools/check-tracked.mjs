@@ -41,6 +41,13 @@ const REQUIRED = [
   'frontends/unity-editor/Editor/ImportToolSettingsWindow.cs',
   'frontends/unity-editor/Editor/BackendRecords.cs',
   'frontends/unity-editor/Editor/CliRunner.cs',
+  // These two are helper files ImportToolWindow.cs calls into. Leaving them untracked
+  // compiles fine on the machine that has them and fails on every fresh clone, which is the
+  // same silent-broken-clone shape as the two incidents above -- so they are named here, not
+  // merely assumed to travel with the window.
+  'frontends/unity-editor/Editor/IMGUIUtility.cs',
+  'frontends/unity-editor/Editor/Extensions.GUIStyle.cs',
+  'frontends/unity-editor/Editor/ToolImport.Editor.asmdef',
   'tools/csharp-check.mjs',
   'tools/csharp-check/Check.csproj',
   'tools/csharp-check/UnityStubs.cs',

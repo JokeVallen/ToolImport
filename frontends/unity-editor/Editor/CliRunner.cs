@@ -5,7 +5,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DevCat.ToolImport.Editor
+namespace ToolImport.Editor
 {
     /// <summary>
     /// Runs the <c>utool</c> backend CLI and returns its JSON output.
@@ -58,7 +58,7 @@ namespace DevCat.ToolImport.Editor
         /// </remarks>
         internal static string ResolveCliPath()
         {
-            string fromSettings = ReadPreference(ImportToolSettingsWindow.CliPrefKey);
+            string fromSettings = ReadPreference(ImportToolSettingsWindow.CLI_PREF_KEY);
             if (!string.IsNullOrEmpty(fromSettings) && File.Exists(fromSettings))
             {
                 return fromSettings;
@@ -104,7 +104,7 @@ namespace DevCat.ToolImport.Editor
         /// <summary>Locate the Node executable.</summary>
         internal static string ResolveNodePath()
         {
-            string fromSettings = ReadPreference(ImportToolSettingsWindow.NodePrefKey);
+            string fromSettings = ReadPreference(ImportToolSettingsWindow.NODE_PREF_KEY);
             if (!string.IsNullOrEmpty(fromSettings) && File.Exists(fromSettings))
             {
                 return fromSettings;
@@ -135,8 +135,7 @@ namespace DevCat.ToolImport.Editor
                     StdErr =
                         "The utool backend CLI was not found.\n" +
                         $"Set the '{CLI_PATH}' environment variable to the absolute path of " +
-                        "apps/cli/bin/utool.js, or place a UnityToolImport checkout " +
-                        "beside this project.",
+                        "apps/cli/bin/utool.js, or place a UnityToolImport checkout beside this project.",
                 });
             }
 

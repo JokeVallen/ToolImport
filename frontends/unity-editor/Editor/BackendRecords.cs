@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace DevCat.ToolImport.Editor
+namespace ToolImport.Editor
 {
     /// <summary>
     /// Parses the backend's <c>--records</c> output.
@@ -24,6 +24,16 @@ namespace DevCat.ToolImport.Editor
         /// <summary>Record type and its fields, in order.</summary>
         public readonly List<KeyValuePair<string, string[]>> All = new List<KeyValuePair<string, string[]>>();
 
+        private const string RESULT = "RESULT";
+        private const string PLAN = "PLAN";
+        private const string META = "META";
+        private const string RECORDS_VERSION = "recordsVersion";
+        private const string DETAIL = "DETAIL";
+        private const string PROBLEM = "PROBLEM";
+        private const string ERROR = "ERROR";
+
+
+
         /// <summary>Value of a two-field record such as RESULT key value.</summary>
         /// <remarks>
         /// Looks at RESULT first, then PLAN. Both carry their payload as a flat
@@ -37,7 +47,17 @@ namespace DevCat.ToolImport.Editor
         {
             foreach (var entry in All)
             {
-                if (entry.Key != "RESULT" && entry.Key != "PLAN")
+                // Skip anything that is neither RESULT nor PLAN.
+                //
+                // Written as "neither A nor B" rather than as a pair of negations on one
+                // line, because that line is exactly where this went wrong: the condition
+                // was `key == RESULT && key != PLAN`, which skips RESULT, keeps every other
+                // record, and so makes every RESULT lookup fall through to the fallback.
+                // It stayed invisible because the only caller read `ok` from a PLAN. Stating
+                // it positively leaves nothing to invert by accident.
+                bool isResult = string.Equals(entry.Key, RESULT, StringComparison.Ordinal);
+                bool isPlan = string.Equals(entry.Key, PLAN, StringComparison.Ordinal);
+                if (!isResult && !isPlan)
                 {
                     continue;
                 }
@@ -85,7 +105,9 @@ namespace DevCat.ToolImport.Editor
         {
             foreach (var entry in All)
             {
-                if (entry.Key == "META" && entry.Value.Length >= 2 && entry.Value[0] == "recordsVersion")
+                if (string.Equals(entry.Key, META, StringComparison.Ordinal)
+                && entry.Value.Length >= 2
+                && string.Equals(entry.Value[0], RECORDS_VERSION, StringComparison.Ordinal))
                 {
                     return entry.Value[1];
                 }
@@ -107,7 +129,8 @@ namespace DevCat.ToolImport.Editor
         {
             foreach (var entry in All)
             {
-                if (entry.Key == "DETAIL" && entry.Value.Length >= 2 && entry.Value[0] == key)
+                if (string.Equals(entry.Key, DETAIL, StringComparison.Ordinal)
+                && entry.Value.Length >= 2 && entry.Value[0] == key)
                 {
                     return entry.Value[1];
                 }
@@ -121,7 +144,8 @@ namespace DevCat.ToolImport.Editor
             var values = new List<string>();
             foreach (var entry in All)
             {
-                if (entry.Key == "DETAIL" && entry.Value.Length >= 2 && entry.Value[0] == key)
+                if (string.Equals(entry.Key, DETAIL, StringComparison.Ordinal)
+                && entry.Value.Length >= 2 && entry.Value[0] == key)
                 {
                     values.Add(entry.Value[1]);
                 }
@@ -135,13 +159,13 @@ namespace DevCat.ToolImport.Editor
             var problems = new List<string>();
             foreach (var entry in All)
             {
-                if (entry.Key == "PROBLEM" && entry.Value.Length >= 2)
+                if (string.Equals(entry.Key, PROBLEM, StringComparison.Ordinal) && entry.Value.Length >= 2)
                 {
-                    problems.Add(entry.Value[0] + ": " + entry.Value[1]);
+                    problems.Add($"{entry.Value[0]}: {entry.Value[1]}");
                 }
-                else if (entry.Key == "ERROR" && entry.Value.Length >= 2)
+                else if (string.Equals(entry.Key, ERROR, StringComparison.Ordinal) && entry.Value.Length >= 2)
                 {
-                    problems.Add(entry.Value[0] + ": " + entry.Value[1]);
+                    problems.Add($"{entry.Value[0]}: {entry.Value[1]}");
                 }
             }
             return problems;
@@ -222,20 +246,7 @@ namespace DevCat.ToolImport.Editor
     internal sealed class AvailableTool
     {
         public string Id = string.Empty;
-
-        /// <summary>
-        /// The tool's latest published version - field 1 of the TOOL record.
-        /// </summary>
-        /// <remarks>
-        /// There is deliberately NO companion "is latest" flag here. TOOL carries exactly
-        /// one version, so such a flag could only ever be constant, and the record's
-        /// field 2 is `type`, not a version - reading it as one produced the literal
-        /// string "tool-library" in a version slot. Which versions exist, and which of
-        /// them is latest, is what VERSIONS records are for; this field is the single
-        /// version a summary line needs.
-        /// </remarks>
         public string Version = string.Empty;
-
         public string Type = string.Empty;
         public string Engines = string.Empty;
         public string Provides = string.Empty;
@@ -292,7 +303,6 @@ namespace DevCat.ToolImport.Editor
     {
         public string Engine = string.Empty;
         public string MinEngineVersion = string.Empty;
-        /// <summary>Adapter-defined floors beyond minEngineVersion, as "key=value,...".</summary>
         public string ExtraRequirements = string.Empty;
         public string ArtifactType = string.Empty;
         public string ArtifactFormat = string.Empty;
@@ -302,7 +312,6 @@ namespace DevCat.ToolImport.Editor
         public bool EditorOnly;
         public string ExternalUrl = string.Empty;
         public string ExternalRef = string.Empty;
-
         public bool IsExternal => ArtifactType == "external";
 
         public static ToolTargetInfo FromFields(string[] fields)

@@ -14,7 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toolDetail, toolTargets, toolSummaries, meta, RECORDS_VERSION } from '../lib/records.js';
+import { toolDetail, toolTargets, toolSummaries, meta, receipts, RECORDS_VERSION } from '../lib/records.js';
 
 /** Capture what the record writers put on stdout, as parsed records. */
 function capture(write) {
@@ -173,6 +173,29 @@ test('the stream opens with its contract version', () => {
   const records = capture(() => meta('D:/reg'));
   assert.deepEqual(records[0].fields, ['recordsVersion', RECORDS_VERSION]);
   assert.deepEqual(records[1].fields, ['registry', 'D:/reg']);
+});
+
+test('a receipt reports which version is installed, in field 1', () => {
+  // The front end reads field 1 to tell "installed" from "installed at an older release",
+  // so the position is pinned rather than assumed.
+  const records = capture(() => receipts([{
+    toolId: 'my-tool',
+    version: '1.0.0',
+    artifactFormat: 'unitypackage',
+    installedAtUtc: '2026-01-15T10:00:00Z',
+    installedFiles: ['Assets/MyTool/MyTool.cs', 'Assets/MyTool/MyTool.cs.meta'],
+  }]));
+
+  const receipt = records.find((r) => r.type === 'RECEIPT');
+  assert.equal(receipt.fields[0], 'my-tool');
+  assert.equal(receipt.fields[1], '1.0.0');
+  assert.equal(receipt.fields[2], 'unitypackage');
+  assert.equal(receipt.fields[4], '2');
+
+  // The listing-level count still comes from RESULT, which must stay readable after RESULT
+  // stopped being skipped by the reader in the front end.
+  const result = records.find((r) => r.type === 'RESULT');
+  assert.deepEqual(result.fields, ['installed', '1']);
 });
 
 test('a TOOL record reports the version a listing can show', () => {

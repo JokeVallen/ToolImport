@@ -1,6 +1,6 @@
 {
-  "name": "DevCat.ToolImport.Editor",
-  "rootNamespace": "DevCat.ToolImport.Editor",
+  "name": "ToolImport.Editor",
+  "rootNamespace": "ToolImport.Editor",
   "references": [],
   "includePlatforms": [
     "Editor"
