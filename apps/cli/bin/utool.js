@@ -89,6 +89,11 @@ Options
                           previous host cannot be reached at all: a 404 or a
                           malformed document is an answer, not an outage
   --project <dir>         project root (default: current directory)
+  --into <dir>            install the tool you asked for into this project-relative
+                          directory instead of the one its manifest declares, e.g.
+                          Assets/Plugins/IMGUILib. Needs exactly one tool id:
+                          a dependency keeps its own declared layout. The directory
+                          is recorded in the receipt, so uninstall still finds it
   --engine <name>         target engine, e.g. unity (default: unity)
   --also-engine <name>    additionally plan this engine's target; repeatable. Use
                           it to install one cross-engine tool into two engines
@@ -525,6 +530,8 @@ async function cmdPlan({ registryLocator, flags, positionals, verifyOnly = false
     process.stderr.write(`usage: utool ${verifyOnly ? 'verify' : 'plan'} <id...>\n`);
     return EXIT.USAGE;
   }
+  const intoProblem = checkIntoScope(flags, positionals);
+  if (intoProblem !== null) return intoProblem;
   const source = sourceFor(registryLocator, flags);
   const { containers, adapters, host } = await prepareAdapters(flags);
   const plan = await buildPlan(source, positionals, flags, adapters, host);
@@ -561,6 +568,8 @@ async function cmdInstall({ registryLocator, flags, positionals }) {
   }
   const projectRoot = path.resolve(flags.project ?? process.cwd());
   const source = sourceFor(registryLocator, flags);
+  const intoProblem = checkIntoScope(flags, positionals);
+  if (intoProblem !== null) return intoProblem;
 
   const { containers, adapters, host } = await prepareAdapters(flags);
   const plan = await buildPlan(source, positionals, flags, adapters, host);
@@ -768,6 +777,19 @@ async function cmdUninstall({ flags, positionals }) {
       out.line('recorded but already absent from disk:');
       for (const file of plan.alreadyGone) out.line(`  missing ${file}`);
     }
+
+    // The case this message exists for: the tool's folder was moved after it was installed.
+    // Every recorded path is gone, so the uninstall removes nothing, and without this line the
+    // only sign is a smaller number. The files are still in the project and the user has to
+    // finish the job - so say where they were expected, not just that they are not there.
+    if (plan.vanishedRoots.length > 0) {
+      out.line('');
+      out.line('the directory this tool was installed into is no longer where the receipt says:');
+      for (const entry of plan.vanishedRoots) out.line(`  missing ${entry.root}  (${entry.toolId})`);
+      out.line('It was moved or deleted outside this tool. Nothing is removed from a path this');
+      out.line('receipt cannot prove it wrote, so delete that copy yourself, or reinstall into it');
+      out.line('with --into once you have moved it back.');
+    }
   }
 
   if (flags.dryRun) return EXIT.OK;
@@ -780,6 +802,9 @@ async function cmdUninstall({ flags, positionals }) {
   });
 
   if (inRecords(flags)) {
+    // The plan, not just the outcome. A front end that only saw "0 files removed" could not tell
+    // a clean uninstall from one whose files had already been moved away.
+    rec.uninstallPlan(plan);
     for (const file of outcome.removed) rec.record('REMOVED', [file]);
     for (const directory of outcome.directories) rec.record('REMOVEDDIR', [directory]);
     for (const entry of outcome.failed) rec.record('PROBLEM', ['E-UNINSTALL-FILE', `${entry.file}: ${entry.reason}`]);
@@ -788,6 +813,9 @@ async function cmdUninstall({ flags, positionals }) {
       'removed', String(outcome.removed.length),
       'directories', String(outcome.directories.length),
       'failed', String(outcome.failed.length),
+      'alreadyGone', String(outcome.alreadyGone.length),
+      'modified', String(plan.modified.length),
+      'movedRoots', String(plan.vanishedRoots.length),
     ]);
     return outcome.failed.length === 0 ? EXIT.OK : EXIT.FAILURE;
   }
@@ -800,7 +828,11 @@ async function cmdUninstall({ flags, positionals }) {
     });
   } else {
     out.heading(`Removed from ${projectRoot}`);
-    out.line(`${outcome.removed.length} file(s) removed, ${outcome.keep?.length ?? plan.keep.length} kept (shared).`);
+    out.line(
+      `${outcome.removed.length} file(s) removed, ` +
+      `${outcome.alreadyGone.length} already gone, ` +
+      `${outcome.keep?.length ?? plan.keep.length} kept (shared).`,
+    );
     for (const file of outcome.removed) out.line(`  removed  ${file}`);
     for (const directory of outcome.directories) out.line(`  rmdir    ${directory}`);
     for (const entry of outcome.failed) out.line(`  FAILED   ${entry.file}: ${entry.reason}`);
@@ -1149,7 +1181,7 @@ async function prepareAdapters(flags) {
  */
 async function safePlanInstallation(plan, source, containers, flags) {
   try {
-    return await planInstallation(plan, source, containers);
+    return await planInstallation(plan, source, containers, { into: flags.into ?? null });
   } catch (cause) {
     if (cause instanceof UtoolError) {
       if (inRecords(flags)) {
@@ -1163,6 +1195,31 @@ async function safePlanInstallation(plan, source, containers, flags) {
     }
     throw cause;
   }
+}
+
+/**
+ * Reject `--into` when it cannot mean one thing.
+ *
+ * A directory is a statement about ONE tool. With several ids there is no answer to "which of
+ * these did you mean", and applying it to all of them would merge unrelated tools into one
+ * folder - so it is refused before any work starts rather than guessed at.
+ *
+ * @returns {number|null} an exit code when the invocation is unusable
+ */
+function checkIntoScope(flags, positionals) {
+  if (!flags.into) return null;
+  if (positionals.length === 1) return null;
+
+  const message =
+    '--into needs exactly one tool id: it names the directory for the tool you asked for, ' +
+    'and a dependency keeps the directory its own manifest declares.';
+  if (inRecords(flags)) {
+    rec.record('PROBLEM', ['E-INSTALL-INTO', message]);
+    rec.record('RESULT', ['ok', 'false', 'exitCode', String(EXIT.USAGE)]);
+  } else {
+    process.stderr.write(`${message}\n`);
+  }
+  return EXIT.USAGE;
 }
 
 function printPlan(plan, report, flags) {

@@ -239,6 +239,52 @@ test('a file already removed from disk is reported separately', async (t) => {
   assert.deepEqual(plan.delete, ['Assets/Lib/Vanished.cs']);
 });
 
+/**
+ * The case behind "I moved the tool's folder and now it will not uninstall".
+ *
+ * A receipt names paths. Once the folder is somewhere else every recorded path is gone, so the
+ * uninstall removes nothing and clears the receipt - which reads as success while the bytes are
+ * still in the project. The reported directory is what makes that visible, and the deletion rule
+ * stays unchanged: a path this receipt cannot prove it wrote is never removed.
+ */
+test('a tool whose installed directory was moved is named, not silently "uninstalled"', async (t) => {
+  const project = await tempProject();
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const store = new ReceiptStore(project);
+  await store.write(
+    baseReceipt({
+      toolId: 'moved-tool',
+      version: '1.0.0',
+      artifactSha256: 'b'.repeat(64),
+      installedFiles: ['Assets/MovedTool/A.cs', 'Assets/MovedTool/B.cs'],
+      installedFileHashes: {
+        'Assets/MovedTool/A.cs': 'a'.repeat(64),
+        'Assets/MovedTool/B.cs': 'c'.repeat(64),
+      },
+      installedRoots: ['Assets/MovedTool'],
+    }),
+  );
+
+  // The user dragged the folder to Assets/Plugins/MovedTool.
+  await mkdir(path.join(project, 'Assets', 'Plugins', 'MovedTool'), { recursive: true });
+  await writeFile(path.join(project, 'Assets', 'Plugins', 'MovedTool', 'A.cs'), 'edited too');
+
+  const plan = await store.planUninstall(['moved-tool']);
+  assert.deepEqual(plan.vanishedRoots, [{ toolId: 'moved-tool', root: 'Assets/MovedTool' }]);
+  assert.equal(plan.alreadyGone.length, 2);
+
+  // And the moved copy is left alone: nothing proves the importer wrote that directory.
+  assert.equal(existsSync(path.join(project, 'Assets', 'Plugins', 'MovedTool', 'A.cs')), true);
+
+  // The outcome must not claim to have removed what was never there: "5 files removed" for a
+  // moved tool is the sentence that made this look like it had worked.
+  const outcome = await store.executeUninstall(plan, { projectRoot: project, receiptStore: store, toolIds: ['moved-tool'] });
+  assert.deepEqual(outcome.removed, []);
+  assert.equal(outcome.alreadyGone.length, 2);
+  assert.equal(existsSync(path.join(project, 'Assets', 'Plugins', 'MovedTool', 'A.cs')), true);
+});
+
 test('a receipt with no recorded digests cannot judge, so it deletes', async (t) => {
   // Receipts written before per-file digests existed must keep working: absent a
   // digest there is nothing to compare, and guessing "modified" would block every

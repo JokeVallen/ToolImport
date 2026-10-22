@@ -14,7 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toolDetail, toolTargets, toolSummaries, meta, receipts, RECORDS_VERSION } from '../lib/records.js';
+import { toolDetail, toolTargets, toolSummaries, meta, receipts, installPlan, uninstallPlan, RECORDS_VERSION } from '../lib/records.js';
 
 /** Capture what the record writers put on stdout, as parsed records. */
 function capture(write) {
@@ -287,4 +287,52 @@ test('fields containing tabs or newlines are escaped to stay on one line', () =>
   for (const record of records) {
     assert.match(record.type, /^[A-Z]+$/, `bogus record type: ${JSON.stringify(record.type)}`);
   }
+});
+
+test('a plan reports where the tool lands, and where the caller moved it', () => {
+  // The window shows the destination before writing, so both have to travel: the manifest's
+  // own root (what happens with no choice) and the chosen one. Appended after the existing
+  // fields so a reader that indexes the earlier ones keeps working.
+  const records = capture(() => installPlan({
+    tools: [{
+      id: 'my-tool',
+      version: '1.2.0',
+      engine: 'unity',
+      artifactType: 'archive',
+      artifactFormat: 'zip',
+      size: 10,
+      sha256: 'a'.repeat(64),
+      contentRoot: 'Assets',
+      editorOnly: false,
+      installedBecause: ['user'],
+      skipped: null,
+      installRoot: 'Assets/MyTool',
+      into: 'Assets/Plugins/Mine',
+      items: [{ path: 'Assets/Plugins/Mine/MyTool.cs', size: 10 }],
+    }],
+    totalBytes: 10,
+    ok: true,
+  }));
+
+  const tool = find(records, 'PLANTOOL');
+  assert.equal(tool.fields[11], 'Assets/MyTool');
+  assert.equal(tool.fields[12], 'Assets/Plugins/Mine');
+  // PLANFILE is what will exist on disk, not the path inside the archive.
+  assert.deepEqual(find(records, 'PLANFILE').fields, ['my-tool', 'Assets/Plugins/Mine/MyTool.cs']);
+});
+
+test('an uninstall reports files that were already gone, and a directory that moved', () => {
+  // Without these the window could only say "0 files removed", which is also what a clean
+  // uninstall of an empty tool looks like. The difference is the whole point.
+  const records = capture(() => uninstallPlan({
+    delete: ['Assets/MovedTool/A.cs'],
+    keep: [],
+    alreadyGone: ['Assets/MovedTool/A.cs'],
+    modified: [],
+    vanishedRoots: [{ toolId: 'moved-tool', root: 'Assets/MovedTool' }],
+  }));
+
+  assert.deepEqual(find(records, 'REMOVE').fields, ['Assets/MovedTool/A.cs']);
+  assert.deepEqual(find(records, 'ALREADYGONE').fields, ['Assets/MovedTool/A.cs']);
+  assert.deepEqual(find(records, 'MOVEDROOT').fields, ['moved-tool', 'Assets/MovedTool']);
 });

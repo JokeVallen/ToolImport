@@ -13,6 +13,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
@@ -24,10 +25,16 @@ import {
   ReceiptStore,
   executeInstall,
   planInstallation,
+  relocatedPath,
   resolveSelection,
   toManifest,
 } from '../src/index.js';
 import { REGISTRY, registryTest, makeContainers, makeCoreOnlyContainers } from './helpers.js';
+
+/** The digest a synthetic artifact declares, so verification has something true to check. */
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
 
 /** A source that reads artifacts from disk, like LocalRegistrySource does. */
 function localSource(root) {
@@ -388,3 +395,203 @@ test('a withdrawn release is still not chosen on its own', registryTest(), async
 
   assert.equal(plan.steps[0].manifest.version, '0.9.0');
 });
+
+// ---------------------------------------------------------------------------
+// choosing where a tool is installed
+// ---------------------------------------------------------------------------
+
+test('a tool installs into a directory the caller chooses', registryTest(), async (t) => {
+  const project = await mkdtemp(path.join(os.tmpdir(), 'utool-relocate-'));
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const containers = makeContainers();
+  const { source, plan } = await buildPlan(REGISTRY, ['core-editor-utils'], { engine: 'unity' });
+  const into = 'Assets/Plugins/Mine';
+
+  const report = await planInstallation(plan, source, containers, { into });
+  assert.equal(report.ok, true);
+
+  // The plan is what the user confirms, so it has to show the destination that will exist -
+  // not the path inside the archive, and not the one the manifest declares.
+  const [tool] = report.tools;
+  assert.equal(tool.installRoot, 'Assets/CoreEditorUtils', 'the declared root is still reported');
+  assert.equal(tool.into, into);
+  assert.ok(tool.items.length > 0);
+  for (const item of tool.items) {
+    assert.ok(item.path.startsWith(`${into}/`), `planned outside the chosen directory: ${item.path}`);
+  }
+
+  const store = new ReceiptStore(project);
+  await executeInstall(report, { projectRoot: project, source, containers, receiptStore: store });
+
+  // Structure below the root is preserved, so the tool still looks like itself.
+  assert.ok(existsSync(path.join(project, 'Assets/Plugins/Mine/Runtime/Core/Guard.cs')));
+  // And it is not ALSO written where the manifest said: a "move" that leaves a copy behind
+  // is a second copy of the same tool in the project, which is worse than no choice at all.
+  assert.equal(existsSync(path.join(project, 'Assets/CoreEditorUtils')), false);
+
+  const receipt = await store.read('core-editor-utils');
+  assert.deepEqual(receipt.installedRoots, [into]);
+  for (const file of receipt.installedFiles) {
+    assert.ok(file.startsWith(`${into}/`), `receipt records a path outside the chosen directory: ${file}`);
+    assert.ok(existsSync(path.join(project, file)), `receipt names '${file}' but nothing is there`);
+  }
+
+  // The relocation is recorded, so uninstall keeps working without being told again.
+  const uninstall = await store.planUninstall(['core-editor-utils']);
+  assert.ok(uninstall.delete.length > 0);
+  for (const file of uninstall.delete) assert.ok(file.startsWith(`${into}/`));
+});
+
+test('a unitypackage is relocated too, because its adapter writes through the context', registryTest(), async (t) => {
+  // The design note assumed an engine container could not be relocated, because its destination
+  // is baked in at build time. It can: the adapter reports each asset's `pathname` and writes
+  // through the core's write context, so the rewrite happens in one place for every container.
+  const project = await mkdtemp(path.join(os.tmpdir(), 'utool-relocate-package-'));
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const containers = makeContainers();
+  const { source, plan } = await buildPlan(REGISTRY, ['editor-tool-selection-history'], { engine: 'unity' });
+  const into = 'Assets/Plugins/Mine';
+
+  const report = await planInstallation(plan, source, containers, { into });
+  assert.equal(report.ok, true);
+  const tool = report.tools.find((entry) => entry.id === 'editor-tool-selection-history');
+  assert.ok(tool, 'the tool that was asked for must be in the plan');
+  assert.equal(tool.installRoot, 'Assets/SelectionHistory');
+
+  // It pulls in core-editor-utils, which keeps its own declared directory: one `--into` names
+  // one destination, and merging a dependency into it would make the two indistinguishable.
+  const dependency = report.tools.find((entry) => entry.id === 'core-editor-utils');
+  assert.ok(dependency, 'the plan must still contain the dependency (this test relies on it)');
+  assert.equal(dependency.into, null);
+
+  const store = new ReceiptStore(project);
+  await executeInstall(report, { projectRoot: project, source, containers, receiptStore: store });
+
+  const receipt = await store.read('editor-tool-selection-history');
+  assert.ok(receipt.installedFiles.length > 0);
+  for (const file of receipt.installedFiles) {
+    assert.ok(file.startsWith(`${into}/`), `receipt records a path outside the chosen directory: ${file}`);
+    assert.ok(existsSync(path.join(project, file)), `receipt names '${file}' but nothing is there`);
+  }
+  assert.equal(existsSync(path.join(project, 'Assets/SelectionHistory')), false);
+});
+
+test('a chosen directory applies to the tool asked for, not to its dependencies', async (t) => {
+  // Two single-file targets: one requested by the user, one pulled in to satisfy it. Only the
+  // first may move. Moving a dependency too would merge unrelated tools into one folder, and a
+  // dependency's own layout is the one its manifest describes.
+  const project = await mkdtemp(path.join(os.tmpdir(), 'utool-relocate-scope-'));
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const payloads = {
+    'wanted-tool': Buffer.from('wanted'),
+    'needed-lib': Buffer.from('needed'),
+  };
+
+  const step = (id, installedBecause, targetPath) => ({
+    manifest: toManifest({
+      kind: 'tool',
+      formatVersion: '3',
+      id,
+      displayName: id,
+      type: 'tool-library',
+      description: `${id} is a synthetic tool used by the relocation tests`,
+      latest: '1.0.0',
+      versions: [
+        {
+          version: '1.0.0',
+          targets: {
+            unity: {
+              requirements: { minEngineVersion: '2019.4' },
+              artifact: {
+                type: 'file',
+                format: 'dll',
+                path: `payloads/${id}/artifacts/${id}-1.0.0.dll`,
+                size: payloads[id].length,
+                sha256: sha256(payloads[id]),
+                targetPath,
+              },
+            },
+          },
+        },
+      ],
+    }),
+    engines: ['unity'],
+    installedBecause,
+    alreadyInstalled: false,
+  });
+
+  const plan = {
+    steps: [
+      step('wanted-tool', ['user'], 'Assets/WantedTool/WantedTool.dll'),
+      step('needed-lib', ['wanted-tool'], 'Assets/NeededLib/NeededLib.dll'),
+    ],
+    problems: [],
+  };
+
+  const source = { fetchArtifact: async (artifactPath) => payloads[artifactPath.split('/')[1]] };
+  const into = 'Assets/Plugins/Mine';
+  const report = await planInstallation(plan, source, makeCoreOnlyContainers(), { into });
+
+  const byId = new Map(report.tools.map((tool) => [tool.id, tool]));
+  assert.deepEqual(byId.get('wanted-tool').items.map((item) => item.path), [`${into}/WantedTool.dll`]);
+  assert.deepEqual(byId.get('needed-lib').items.map((item) => item.path), ['Assets/NeededLib/NeededLib.dll']);
+  assert.equal(byId.get('needed-lib').into, null, 'a dependency must not inherit the choice');
+});
+
+test('a directory that would leave the project is refused before anything is fetched', async () => {
+  let fetched = 0;
+  const source = { fetchArtifact: async () => { fetched += 1; return Buffer.alloc(0); } };
+
+  const plan = {
+    steps: [
+      {
+        manifest: toManifest({
+          kind: 'tool',
+          formatVersion: '3',
+          id: 'any-tool',
+          displayName: 'any-tool',
+          type: 'tool-library',
+          description: 'any-tool is a synthetic tool used by the relocation tests',
+          latest: '1.0.0',
+          versions: [
+            {
+              version: '1.0.0',
+              targets: {
+                unity: {
+                  requirements: { minEngineVersion: '2019.4' },
+                  artifact: { type: 'external', source: 'git', url: 'https://example.com/a.git', ref: 'v1' },
+                },
+              },
+            },
+          ],
+        }),
+        engines: ['unity'],
+        installedBecause: ['user'],
+        alreadyInstalled: false,
+      },
+    ],
+    problems: [],
+  };
+
+  for (const into of ['../outside', 'C:/Windows', '/absolute', '  ']) {
+    await assert.rejects(
+      () => planInstallation(plan, source, makeCoreOnlyContainers(), { into }),
+      (error) => error.code === 'E-INSTALL-INTO',
+      `'${into}' should have been refused`,
+    );
+  }
+  assert.equal(fetched, 0, 'an unusable directory must not cost a download');
+});
+
+test('a path outside the derived root is reported, not silently moved', () => {
+  // The guard behind the whole feature: if the paths and the root ever disagree, the prefix
+  // arithmetic would write somewhere nobody asked for. Refusing is the only safe answer.
+  assert.throws(
+    () => relocatedPath('Assets/Other/File.cs', 'Assets/Tool', 'Assets/Mine'),
+    (error) => error.code === 'E-INSTALL-ROOT',
+  );
+});
+

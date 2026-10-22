@@ -42,6 +42,8 @@ import { checkHeader, loadUtool } from './loader.js';
  * @property {string|null} registryCommit
  * @property {string[]} installedEngines engines this tool was installed into
  * @property {string[]} installedFiles project-relative paths
+ * @property {string[]} [installedRoots] project-relative directories the payloads occupy, one per
+ *   engine; recorded so an uninstall can say where a tool used to live when its files are gone
  * @property {string[]} installedByTools ids that required this, or ['user']
  * @property {string|null} previousSha256 the artifact this install replaced
  */
@@ -133,6 +135,7 @@ export class ReceiptStore {
       registryCommit: receipt.registryCommit ?? null,
       installedEngines: [...(receipt.installedEngines ?? [])].sort(),
       installedFiles: [...(receipt.installedFiles ?? [])].sort(),
+      installedRoots: [...(receipt.installedRoots ?? [])].sort(),
     // Per-file digests as written, so a later uninstall can tell our file from one the
     // user has since edited. Absent for receipts written before this was recorded; the
     // uninstall plan treats a missing digest as "cannot judge" rather than as drift.
@@ -275,7 +278,7 @@ export class ReceiptStore {
    * the last claimant leaves. Nothing is deleted here; this only reports.
    *
    * @param {string[]} toolIds
-   * @returns {Promise<{delete: string[], keep: {file: string, claimedBy: string[]}[], missingReceipts: string[]}>}
+   * @returns {Promise<{delete: string[], keep: {file: string, claimedBy: string[]}[], missingReceipts: string[], alreadyGone: string[], modified: {file: string, expected: string|null, actual: string}[], vanishedRoots: {toolId: string, root: string}[]}>}
    */
   async planUninstall(toolIds) {
     const all = await this.list();
@@ -298,6 +301,20 @@ export class ReceiptStore {
     const toKeep = [];
     /** Files recorded in a receipt that are no longer on disk. */
     const alreadyGone = [];
+    /**
+     * Recorded tool directories that are not on disk either.
+     *
+     * This is the honest half of "I moved the tool's folder and now it will not uninstall". A
+     * receipt names paths, and once the folder is somewhere else every one of those paths is
+     * gone: the uninstall then removes nothing and clears the receipt, which looks like it
+     * worked. The bytes are still in the project, and nobody is told.
+     *
+     * Deleting a directory the receipt cannot prove it wrote is not the answer - a moved folder
+     * is indistinguishable from a folder the user created. Naming it is: the user is told which
+     * directory was expected and that it is gone, and can finish the job themselves.
+     * @type {{toolId: string, root: string}[]}
+     */
+    const vanishedRoots = [];
     /**
      * Files whose bytes differ from what was installed.
      *
@@ -327,6 +344,7 @@ export class ReceiptStore {
 
     for (const receipt of all.filter((entry) => going.has(entry.toolId))) {
       const recorded = receipt.installedFileHashes ?? {};
+      const before = alreadyGone.length;
       for (const file of receipt.installedFiles ?? []) {
         const normalized = normalize(file);
         const claimedBy = survivors.get(normalized);
@@ -352,12 +370,24 @@ export class ReceiptStore {
 
         if (!toDelete.includes(normalized)) toDelete.push(normalized);
       }
+
+      // Every file of this receipt is missing, and a directory it recorded is missing too:
+      // the tool was moved or deleted outside this importer. Recorded, not acted upon.
+      const filesMissing = alreadyGone.length - before === (receipt.installedFiles ?? []).length
+        && (receipt.installedFiles ?? []).length > 0;
+      if (filesMissing) {
+        for (const root of receipt.installedRoots ?? []) {
+          if (existsSync(absoluteOf(root))) continue;
+          vanishedRoots.push({ toolId: receipt.toolId, root });
+        }
+      }
     }
 
     toDelete.sort();
     alreadyGone.sort();
     modified.sort((a, b) => a.file.localeCompare(b.file));
-    return { delete: toDelete, keep: toKeep, missingReceipts, alreadyGone, modified };
+    vanishedRoots.sort((a, b) => a.root.localeCompare(b.root));
+    return { delete: toDelete, keep: toKeep, missingReceipts, alreadyGone, modified, vanishedRoots };
   }
 
   /**
@@ -380,7 +410,7 @@ export class ReceiptStore {
    *
    * @param {{delete: string[], missingReceipts: string[]}} plan
    * @param {{projectRoot: string, receiptStore: ReceiptStore, toolIds?: string[]}} options
-   * @returns {Promise<{removed: string[], failed: {file: string, reason: string}[], directories: string[], receipts: string[]}>}
+   * @returns {Promise<{removed: string[], alreadyGone: string[], failed: {file: string, reason: string}[], directories: string[], receipts: string[]}>}
    */
   async executeUninstall(plan, options) {
     const { projectRoot, receiptStore } = options;
@@ -388,6 +418,7 @@ export class ReceiptStore {
 
     const root = path.resolve(projectRoot);
     const removed = [];
+    const alreadyGone = [];
     const failed = [];
     /** @type {Set<string>} */
     const touchedDirectories = new Set();
@@ -400,6 +431,15 @@ export class ReceiptStore {
       const rel = path.relative(root, absolute);
       if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
         failed.push({ file: relative, reason: 'outside the project root' });
+        continue;
+      }
+
+      // A path that is not there is not a removal. `rm --force` succeeds either way, so
+      // counting it as removed let the summary claim "5 file(s) removed" for a tool whose
+      // directory had been moved away: the caller reads a number and concludes the bytes are
+      // gone, when they are still somewhere in the project.
+      if (!existsSync(absolute)) {
+        alreadyGone.push(relative);
         continue;
       }
 
@@ -481,7 +521,7 @@ export class ReceiptStore {
       }
     }
 
-    return { removed, failed, directories, receipts };
+    return { removed, alreadyGone, failed, directories, receipts };
   }
 
   /**

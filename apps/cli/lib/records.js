@@ -24,6 +24,9 @@
  *     PLANTOOL, PLANFILE, PLAN, INSTALLED, INSTALLEDFILE, SKIPPED, RESULT, RECEIPT,
  *     WARNING, ERROR.
  * 2 - adds VERSIONS (one per published version, since a tool may publish several).
+ *
+ * Additive since 2, so no bump: VERSIONS, PROVIDER, REMOVED, REMOVEDDIR, RECEIPTREMOVED,
+ * REMOVE, KEEP, ALREADYGONE, MODIFIED, MOVEDROOT, and the trailing PLANTOOL fields.
  */
 export const RECORDS_VERSION = '2';
 
@@ -139,6 +142,9 @@ export function toolDetail(manifest, model) {
   // tool it is actually displaying, and filtering by them needs a value to match on.
   record('DETAIL', ['tags', (model?.tags ?? manifest.tags ?? []).join(',')]);
   record('DETAIL', ['license', manifest.license]);
+  // Where the licence text is, when the identifier's own page is not the answer. Emitted for the
+  // same reason as documentation: "declared" and "not reported" must not look alike.
+  record('DETAIL', ['licenseUrl', manifest.licenseUrl ?? '']);
   record('DETAIL', ['author', manifest.author]);
   record('DETAIL', ['homepage', manifest.homepage]);
   // Where the tool's documentation lives, which is not always its homepage: a repository
@@ -221,6 +227,11 @@ export function installPlan(report, options = {}) {
       tool.editorOnly ? 'true' : 'false',
       tool.installedBecause.join(','),
       tool.skipped ?? '',
+      // Appended, not inserted: a front end that reads by index must keep working, and these
+      // two are what make "install this elsewhere" visible before anything is written.
+      // installRoot is where the payload lands by default; into is where the caller moved it.
+      tool.installRoot ?? '',
+      tool.into ?? '',
     ]);
     for (const item of tool.items) {
       // Directory records carry no bytes and are not files to report.
@@ -252,6 +263,25 @@ export function installResult(outcome) {
 }
 
 /**
+ * What an uninstall will do, or did.
+ *
+ * The already-gone files are a first-class record rather than a footnote: an empty `removed`
+ * list after a successful uninstall is otherwise indistinguishable from a tool whose directory
+ * was moved, and that is exactly the case where the user needs to be told where it went.
+ *
+ * @param {{delete?: string[], keep?: {file: string, claimedBy: string[]}[], alreadyGone?: string[], modified?: {file: string, expected: string|null, actual: string}[], vanishedRoots?: {toolId: string, root: string}[]}} plan
+ */
+export function uninstallPlan(plan) {
+  for (const file of plan.delete ?? []) record('REMOVE', [file]);
+  for (const entry of plan.keep ?? []) record('KEEP', [entry.file, entry.claimedBy.join(',')]);
+  for (const file of plan.alreadyGone ?? []) record('ALREADYGONE', [file]);
+  for (const entry of plan.modified ?? []) {
+    record('MODIFIED', [entry.file, entry.expected ?? '', entry.actual]);
+  }
+  for (const entry of plan.vanishedRoots ?? []) record('MOVEDROOT', [entry.toolId, entry.root]);
+}
+
+/**
  * @param {Record<string, any>[]} receipts
  */
 export function receipts(receipts) {
@@ -263,6 +293,9 @@ export function receipts(receipts) {
       receipt.installedAtUtc,
       String((receipt.installedFiles ?? []).length),
       (receipt.installedFiles ?? []).join(','),
+      // Appended: the directories this tool occupies, so a front end can say where it lives
+      // without opening the receipt itself.
+      (receipt.installedRoots ?? []).join(','),
     ]);
   }
   record('RESULT', ['installed', String(receipts.length)]);

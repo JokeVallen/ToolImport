@@ -84,6 +84,16 @@ node apps/cli/bin/utool.js status  --project "C:\path\to\UnityProject"
 
 Add `--dry-run` to plan and verify without writing anything.
 
+The destinations a manifest declares are the **default**. `--into` installs the tool you asked
+for into a directory of your choosing instead (one tool per call; a dependency keeps its own
+layout):
+
+```pwsh
+node apps/cli/bin/utool.js install imgui-lib --into "Assets/Plugins/IMGUILib" --project "C:\path\to\UnityProject"
+```
+
+The actual destination is recorded in the receipt, so uninstalling needs no reminder.
+
 ## Output modes
 
 | Mode | For | Notes |

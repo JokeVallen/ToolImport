@@ -63,6 +63,15 @@ node apps/cli/bin/utool.js status  --project "C:\path\to\UnityProject"
 
 加 `--dry-run` 可以只规划与校验，不写任何东西。
 
+清单声明的落点是**默认值**，可以用 `--into` 换成工程里的别的目录（一次只能点名一个工具；
+依赖保持它自己的布局）：
+
+```pwsh
+node apps/cli/bin/utool.js install imgui-lib --into "Assets/Plugins/IMGUILib" --project "C:\path\to\UnityProject"
+```
+
+实际落点记在回执里，所以卸载不需要再被告知一次。
+
 ## 输出模式
 
 | 模式 | 给谁用 | 说明 |

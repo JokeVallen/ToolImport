@@ -81,6 +81,9 @@ export {
   detectCoreArchiveFormat,
   isSafeEntryName,
   assertSafePaths,
+  assertInstallDirectory,
+  commonDirectory,
+  relocatedPath,
   verifyArtifactBytes,
   verifyArtifactFile,
 } from './artifacts.js';

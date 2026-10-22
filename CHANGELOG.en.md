@@ -17,6 +17,34 @@ The work below happened in one continuous push that built the tool and moved the
 metadata format to `formatVersion 2` at the same time, so the entries are grouped by
 area rather than by release date. Nothing here has been published.
 
+## Install destination, and what a moved tool looks like
+
+### Added
+
+- **`install --into <dir>`** — install the tool you asked for into a project directory of your
+  choice instead of the one its manifest declares. The manifest's destinations are the default,
+  not a command: the tool's directory is derived from where its files actually land, and the
+  override replaces that root while keeping the structure below it. A dependency keeps its own
+  layout, so `--into` requires exactly one id.
+- **`Install into` in the Unity window** — the same choice, above the action buttons, empty
+  meaning "as the manifest declares" with the default named underneath. The plan is cleared when
+  it changes, because a plan for the old destination describes files that will not be written.
+- **`installedRoots` in receipts** — the directory each engine's payload occupies. It is the one
+  thing a receipt can say about a tool whose files have gone.
+- **`MOVEDROOT` / `ALREADYGONE` records** and a matching status line: an uninstall whose recorded
+  paths are all missing now names the directory that is no longer there, instead of reporting
+  "0 file(s) removed" as if it had worked.
+- `PLANTOOL` gained trailing `installRoot` and `into` fields; `PLANFILE` now reports the
+  destination that will exist on disk rather than the path inside the archive.
+
+### Fixed
+
+- An artifact whose `contentRoot` contains `..` is refused at plan time. Entry names were checked
+  before, but the declared root was glued in front of them afterwards, so the check ran on the
+  wrong string.
+- `--into` with an absolute path or a drive letter is refused before anything is downloaded;
+  a leading `/` used to be silently stripped into a relative directory.
+
 ## Tool built, format v2
 
 ### Added

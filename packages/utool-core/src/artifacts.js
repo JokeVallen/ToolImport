@@ -140,6 +140,106 @@ export function placedArtifactDestination(declared, label = declared.path) {
 }
 
 /**
+ * The directory a set of installed paths occupies as a unit.
+ *
+ * This is the answer to "where does this tool live", which is what a user needs in order to
+ * move it: `Assets/IMGUILib/Editor/A.cs` and `Assets/IMGUILib/Runtime/B.cs` live under
+ * `Assets/IMGUILib`, while two unrelated files under `Assets/` share only `Assets` - and
+ * moving that is moving the whole Assets folder, so the answer is still the honest one.
+ *
+ * Derived rather than declared in the manifest. The artifact already states where every entry
+ * lands; a declared root would be a second source of truth that can contradict the first, and
+ * the contradiction would surface as files written outside the directory the user chose.
+ *
+ * @param {string[]} paths project-relative file paths
+ * @returns {string} project-relative directory, or '' when the files sit at the project root
+ */
+export function commonDirectory(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return '';
+
+  let common = null;
+  for (const raw of paths) {
+    const normalised = String(raw).replace(/\\/g, '/');
+    const cut = normalised.lastIndexOf('/');
+    const segments = (cut === -1 ? '' : normalised.slice(0, cut)).split('/').filter(Boolean);
+    if (common === null) {
+      common = segments;
+      continue;
+    }
+    let shared = 0;
+    while (shared < common.length && shared < segments.length && common[shared] === segments[shared]) {
+      shared += 1;
+    }
+    common = common.slice(0, shared);
+  }
+  return (common ?? []).join('/');
+}
+
+/**
+ * Move a path that already landed under `root` to `into`, keeping its structure below the root.
+ *
+ * Refuses a path that is not under the root instead of writing it wherever the prefix maths
+ * happened to land. A plan whose items disagree with the root means the root was computed from
+ * different data than the paths, and the only safe response to that is to stop.
+ *
+ * @param {string} landed project-relative path
+ * @param {string} root project-relative directory it belongs to
+ * @param {string} into project-relative directory to move it to
+ * @param {string} [label]
+ * @returns {string}
+ */
+export function relocatedPath(landed, root, into, label = '') {
+  const normalised = String(landed).replace(/\\/g, '/');
+  const prefix = String(root ?? '').replace(/^\/+|\/+$/g, '');
+  const destination = String(into ?? '').replace(/^\/+|\/+$/g, '');
+
+  let rest;
+  if (prefix === '') rest = normalised;
+  else if (normalised === prefix) rest = '';
+  else if (normalised.startsWith(`${prefix}/`)) rest = normalised.slice(prefix.length + 1);
+  else {
+    throw new ArtifactError(
+      'E-INSTALL-ROOT',
+      `${label ? `${label}: ` : ''}'${normalised}' is not inside '${prefix}', the directory this ` +
+        `artifact installs into, so it cannot be moved as a unit. Nothing was written.`,
+    );
+  }
+
+  return rest ? `${destination}/${rest}` : destination;
+}
+
+/**
+ * Validate a user-chosen install directory.
+ *
+ * @param {string} into project-relative path from the caller
+ * @param {string} [label]
+ * @returns {string} the normalised directory
+ */
+export function assertInstallDirectory(into, label = '') {
+  // Leading and trailing slashes are treated very differently: a trailing one is harmless and
+  // stripped, while a leading one means "the root of this drive" and is refused. Trimmed only
+  // at the end so `/absolute` cannot become the relative path `absolute`.
+  const normalised = String(into ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  const where = label ? `${label}: ` : '';
+
+  if (normalised.length === 0) {
+    throw new ArtifactError(
+      'E-INSTALL-INTO',
+      `${where}the install directory is empty. Give a path inside the project, such as ` +
+        `Assets/Plugins/MyTool.`,
+    );
+  }
+  if (!isSafeEntryName(normalised)) {
+    throw new ArtifactError(
+      'E-INSTALL-INTO',
+      `${where}'${normalised}' is not a path inside the project. It must be relative, with no ` +
+        `drive letter and no '..' segment.`,
+    );
+  }
+  return normalised;
+}
+
+/**
  * Verify artifact bytes against a declared target, writing nothing.
  *
  * @param {Buffer} bytes
