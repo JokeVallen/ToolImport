@@ -21,7 +21,7 @@ import { open, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { ArtifactError } from './errors.js';
-import { ARCHIVE_MAGIC, ARTIFACT_TYPE } from './format.js';
+import { ARCHIVE_MAGIC, ARTIFACT_TYPE, UNPACK } from './format.js';
 
 /**
  * @typedef {Object} ArtifactReport
@@ -111,6 +111,35 @@ export function assertSafePaths(names, label, what) {
 }
 
 /**
+ * Where an artifact that is not unpacked lands.
+ *
+ * Only `targetPath` can answer this. The artifact's own `path` is REGISTRY-relative
+ * (`payloads/<id>/artifacts/...`), which means nothing inside a project, so deriving a
+ * destination from its basename would drop a stray file in the project root: inside the
+ * project, recorded by a receipt, and belonging to nothing. A missing targetPath is
+ * therefore refused rather than guessed.
+ *
+ * Shared with install.js on purpose. Planning and writing must agree about where the
+ * bytes go, and the last time they computed a destination separately the receipt named a
+ * path that did not exist.
+ *
+ * @param {{type?: string, format?: string, targetPath?: string}} declared
+ * @param {string} [label]
+ * @returns {string} project-relative destination
+ */
+export function placedArtifactDestination(declared, label = declared.path) {
+  if (!declared.targetPath) {
+    throw new ArtifactError(
+      'E-ARTIFACT-TARGETPATH',
+      `${label}: artifact type '${declared.type}' with unpack: none is placed as-is, so it needs ` +
+        `targetPath to say where it lands. Set targetPath, or drop unpack: none to let the ` +
+        `'${declared.format}' handler extract it instead.`,
+    );
+  }
+  return declared.targetPath;
+}
+
+/**
  * Verify artifact bytes against a declared target, writing nothing.
  *
  * @param {Buffer} bytes
@@ -150,6 +179,27 @@ export function verifyArtifactBytes(bytes, declared, registry, label = declared.
     assertSafePaths([declared.targetPath], label, 'destinations');
     const items = [{ path: declared.targetPath, size: bytes.length }];
     return { path: declared.path, size: bytes.length, sha256, format: null, items, entries: 1 };
+  }
+
+  // A container declared `unpack: none` is PLACED, not opened, so it needs no handler.
+  //
+  // This has to be decided before handler resolution. `resolve()` refuses an artifact
+  // that is not being unpacked, so without this branch the report becomes "no handler is
+  // registered for format 'unitypackage'" - while printing unitypackage among the
+  // registered formats, because it is registered. The message then blames a missing
+  // engine adapter for what is actually a missing (or unwanted) `unpack: none`.
+  if (declared.unpack === UNPACK.NONE) {
+    const destination = placedArtifactDestination(declared, label);
+    assertSafePaths([destination], label, 'destinations');
+    const items = [{ path: destination, size: bytes.length }];
+    return {
+      path: declared.path,
+      size: bytes.length,
+      sha256,
+      format: declared.format ?? null,
+      items,
+      entries: 1,
+    };
   }
 
   const handler = registry.resolve(declared);

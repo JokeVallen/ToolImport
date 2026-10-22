@@ -189,6 +189,47 @@ function requireYaml(text) {
   return parseYaml(text);
 }
 
+test('an artifact declared unpack: none is placed, so it needs no adapter', () => {
+  // Regression: `unpack: none` was honoured by the install writer and by nobody else.
+  // Verification asked the container registry to open it anyway, `resolve()` refused
+  // because the artifact is not being unpacked, and the resulting error said "no handler
+  // is registered for format 'unitypackage'" while listing unitypackage among the
+  // registered formats. It read as "your adapter is missing" and was actually
+  // "you asked for the file itself to be placed".
+  const bytes = Buffer.from('any container bytes at all');
+  const declared = {
+    type: ARTIFACT_TYPE.PACKAGE,
+    format: UNITYPACKAGE_FORMAT,
+    path: 'payloads/x/artifacts/x-1.0.0.unitypackage',
+    size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    unpack: 'none',
+    targetPath: 'Assets/X/X.unitypackage',
+  };
+
+  // No adapter is registered here: placing does not open anything, so the core can
+  // report the destination on its own.
+  const report = verifyArtifactBytes(bytes, declared, makeCoreOnlyContainers());
+  assert.deepEqual(report.items, [{ path: 'Assets/X/X.unitypackage', size: bytes.length }]);
+
+  // The same artifact WITHOUT targetPath has no defined destination. The error has to
+  // name that, and must not blame an adapter for a format that is registered.
+  assert.throws(
+    () =>
+      verifyArtifactBytes(bytes, { ...declared, targetPath: undefined }, makeCoreOnlyContainers()),
+    (error) =>
+      error.code === 'E-ARTIFACT-TARGETPATH' &&
+      /targetPath/.test(error.message) &&
+      !/adapter/i.test(error.message),
+  );
+
+  // And a destination that escapes the project is refused, as for a single file.
+  assert.throws(
+    () => verifyArtifactBytes(bytes, { ...declared, targetPath: '../outside' }, makeCoreOnlyContainers()),
+    (error) => error.code === 'E-ARTIFACT-UNSAFE',
+  );
+});
+
 test('regenerating the index can skip the index self-check without weakening validate', async () => {
   // Regression: `write-index` validated the whole registry first, and a stale or
   // missing index IS a validation error -- so the one command that fixes staleness

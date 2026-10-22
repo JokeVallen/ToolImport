@@ -25,7 +25,7 @@ import path from 'node:path';
 
 import { ArtifactError } from './errors.js';
 import { ARTIFACT_TYPE, UNPACK } from './format.js';
-import { isSafeEntryName, verifyArtifactBytes } from './artifacts.js';
+import { isSafeEntryName, placedArtifactDestination, verifyArtifactBytes } from './artifacts.js';
 
 /**
  * @typedef {Object} PlannedTool
@@ -41,6 +41,8 @@ import { isSafeEntryName, verifyArtifactBytes } from './artifacts.js';
  * @property {string|null} contentRoot
  * @property {string|null} targetPath
  * @property {string|null} subdirectory
+ * @property {string} unpack "auto" or "none"; carried from the manifest so the write phase
+ *   cannot disagree with the plan about whether a container is opened or placed
  * @property {boolean} editorOnly
  * @property {string[]} installedBecause
  * @property {boolean} alreadyInstalled
@@ -82,6 +84,10 @@ export async function planInstallation(plan, source, containers) {
         contentRoot: target.contentRoot,
         targetPath: target.targetPath,
         subdirectory: target.subdirectory,
+        // The plan is what the user confirms, so it has to record HOW the artifact lands.
+        // Dropping this field is how `unpack: none` used to be planned as one placed file
+        // and then executed as an extraction: the receipt named a file nobody wrote.
+        unpack: target.artifact.unpack ?? UNPACK.AUTO,
         editorOnly: target.editorOnly,
         installedBecause: step.installedBecause,
         alreadyInstalled: step.alreadyInstalled,
@@ -261,9 +267,8 @@ async function writePayload(bytes, tool, containers, projectRoot) {
   }
 
   if (declared.unpack === UNPACK.NONE) {
-    const destination =
-      tool.targetPath ??
-      path.posix.join(tool.contentRoot ?? '', path.posix.basename(String(tool.artifactPath)));
+    // Same decision the plan already reported: the container is one file at targetPath.
+    const destination = placedArtifactDestination(declared, `${tool.id}/${tool.engine}`);
     const absolute = path.join(projectRoot, destination);
     if (!isSafeEntryName(destination)) {
       throw new ArtifactError(
@@ -298,6 +303,7 @@ function declaredOf(tool) {
     contentRoot: tool.contentRoot,
     targetPath: tool.targetPath,
     subdirectory: tool.subdirectory,
+    unpack: tool.unpack,
     files: [],
     editorOnly: tool.editorOnly,
   };

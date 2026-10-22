@@ -27,7 +27,7 @@ import {
   resolveSelection,
   toManifest,
 } from '../src/index.js';
-import { REGISTRY, registryTest, makeContainers } from './helpers.js';
+import { REGISTRY, registryTest, makeContainers, makeCoreOnlyContainers } from './helpers.js';
 
 /** A source that reads artifacts from disk, like LocalRegistrySource does. */
 function localSource(root) {
@@ -106,6 +106,54 @@ test('installing a cross-engine tool writes each engine to its own location', re
   assert.equal(roots.size, 2, `one root per engine, got: ${[...roots].join(', ')}`);
   assert.ok([...roots].includes('Assets/CoreEditorUtils'), 'the unity root is tool-named');
   assert.ok([...roots].includes('addons/core_utils'), 'the godot root is tool-named');
+});
+
+test('a placed container is written as one file and never opened', async (t) => {
+  // The other half of `unpack: none`: the write phase used to ignore the declaration
+  // entirely, because the plan did not carry it. A tool planned as "one file at
+  // targetPath" was executed as an extraction, so the receipt named a path that was
+  // never written. The containers registry here is deliberately EMPTY of engine
+  // adapters: if anything tried to open the artifact, this test fails loudly.
+  const project = await mkdtemp(path.join(os.tmpdir(), 'utool-placed-'));
+  t.after(() => rm(project, { recursive: true, force: true }));
+
+  const bytes = Buffer.from('container bytes that must never be unpacked');
+  const destination = 'Assets/PlacedTool/PlacedTool.unitypackage';
+  const report = {
+    tools: [
+      {
+        id: 'placed-tool',
+        version: '1.0.0',
+        engine: 'unity',
+        artifactType: 'package',
+        artifactPath: 'payloads/placed-tool/artifacts/placed-tool-1.0.0.unitypackage',
+        artifactFormat: 'unitypackage',
+        size: bytes.length,
+        sha256: 'a'.repeat(64),
+        items: [{ path: destination, size: bytes.length }],
+        contentRoot: null,
+        targetPath: destination,
+        subdirectory: null,
+        unpack: 'none',
+        editorOnly: true,
+        installedBecause: ['user'],
+        alreadyInstalled: false,
+        skipped: null,
+      },
+    ],
+  };
+
+  const store = new ReceiptStore(project);
+  await executeInstall(report, {
+    projectRoot: project,
+    source: { fetchArtifact: async () => bytes },
+    containers: makeCoreOnlyContainers(),
+    receiptStore: store,
+  });
+
+  assert.equal(readFileSync(path.join(project, destination), 'utf8'), bytes.toString());
+  const [receipt] = await store.list();
+  assert.deepEqual(receipt.installedFiles, [destination]);
 });
 
 test('a receipt lets the payload be removed with no residue', registryTest(), async (t) => {
