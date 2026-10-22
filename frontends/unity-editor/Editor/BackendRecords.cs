@@ -29,6 +29,7 @@ namespace ToolImport.Editor
         private const string META = "META";
         private const string RECORDS_VERSION = "recordsVersion";
         private const string DETAIL = "DETAIL";
+        private const string WILLINSTALL = "WILLINSTALL";
         private const string PROBLEM = "PROBLEM";
         private const string ERROR = "ERROR";
 
@@ -91,6 +92,45 @@ namespace ToolImport.Editor
                     yield return entry.Value;
                 }
             }
+        }
+
+        /// <summary>
+        /// The declared inventory of files that installing this tool would write, for one engine.
+        /// </summary>
+        /// <remarks>
+        /// In formatVersion 3 the inventory belongs to a (version, engine) pair - it lives in
+        /// versions[].targets.&lt;engine&gt;.artifact.files - so the backend appends the engine to
+        /// each WILLINSTALL record. Filtering here rather than in the drawing code is what keeps a
+        /// cross-engine tool from telling a Unity user that a Godot payload is about to land in
+        /// Assets.
+        ///
+        /// A record with no engine is unqualified: an older backend whose inventory was one
+        /// top-level list, or a manifest resolved without a model. It is shown for any engine,
+        /// because hiding it would be the bug this replaced - an "Installs" section that was
+        /// permanently empty.
+        /// </remarks>
+        /// <param name="engine">the engine being installed into; empty/null shows every record</param>
+        public List<string> WillInstall(string engine)
+        {
+            var files = new List<string>();
+            foreach (var entry in All)
+            {
+                if (!string.Equals(entry.Key, WILLINSTALL, StringComparison.Ordinal)
+                    || entry.Value.Length < 1)
+                {
+                    continue;
+                }
+
+                string fileEngine = entry.Value.Length >= 2 ? entry.Value[1] : string.Empty;
+                if (!string.IsNullOrEmpty(fileEngine) && !string.IsNullOrEmpty(engine)
+                    && !string.Equals(fileEngine, engine, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                files.Add(entry.Value[0]);
+            }
+            return files;
         }
 
         /// <summary>

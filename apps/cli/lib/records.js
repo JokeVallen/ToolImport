@@ -26,7 +26,8 @@
  * 2 - adds VERSIONS (one per published version, since a tool may publish several).
  *
  * Additive since 2, so no bump: VERSIONS, PROVIDER, REMOVED, REMOVEDDIR, RECEIPTREMOVED,
- * REMOVE, KEEP, ALREADYGONE, MODIFIED, MOVEDROOT, and the trailing PLANTOOL fields.
+ * REMOVE, KEEP, ALREADYGONE, MODIFIED, MOVEDROOT, the trailing PLANTOOL fields, and the
+ * trailing engine field on WILLINSTALL.
  */
 export const RECORDS_VERSION = '2';
 
@@ -175,8 +176,26 @@ export function toolDetail(manifest, model) {
       (dep.engines ?? []).join(','),
     ]);
   }
-  for (const file of manifest.files ?? []) {
-    record('WILLINSTALL', [file]);
+  // The declared inventory of what gets installed, which in formatVersion 3 belongs to a
+  // (version, engine) pair: it lives in versions[].targets.<engine>.artifact.files. Reading
+  // the top-level `files` - a formatVersion 2 field - therefore reported nothing at all, and
+  // the editor's "Installs N file(s)" section was permanently empty.
+  //
+  // The engine is APPENDED as a second field, so index 0 still holds the file and an existing
+  // reader is unaffected, while a front end that installs into one engine can show that
+  // engine's inventory instead of a cross-engine concatenation.
+  const inventory = [];
+  for (const target of model?.allTargets ?? []) {
+    for (const file of target.files ?? []) inventory.push([file, target.engine]);
+  }
+  if (inventory.length === 0) {
+    // A caller that passes no model, or a v2-shaped document, still gets its inventory. Left
+    // unqualified rather than dropped: "no engine recorded" is not "belongs to this engine",
+    // but hiding it would be the original bug again.
+    for (const file of manifest.files ?? []) inventory.push([file, '']);
+  }
+  for (const [file, engine] of inventory) {
+    record('WILLINSTALL', [file, engine]);
   }
 }
 

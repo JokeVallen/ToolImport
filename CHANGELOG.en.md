@@ -45,6 +45,21 @@ area rather than by release date. Nothing here has been published.
 - `--into` with an absolute path or a drive letter is refused before anything is downloaded;
   a leading `/` used to be silently stripped into a relative directory.
 
+## The declared inventory reaches the editor again
+
+### Fixed
+
+- **`Installs N file(s)` was permanently empty in the Unity window.** The CLI reported the
+  inventory from the top-level `files` field, which `formatVersion 3` moved onto
+  `versions[].targets.<engine>.artifact.files`. Nothing failed: the reader yielded no records and
+  the section simply never drew. `WILLINSTALL` now carries the file in field 0 and its engine in a
+  trailing field, and the window shows only the engine it installs into - so a cross-engine tool no
+  longer suggests its Godot payload is about to land in `Assets`.
+- **`utool show <id>` exited 1 for every tool.** The trailing `installs:` block read the same
+  moved field off a typed model with no such getter, so it threw after printing the description.
+  The inventory is now listed under the target it belongs to, and an end-to-end test runs `show`
+  for every tool in the registry.
+
 ## Tool built, format v2
 
 ### Added

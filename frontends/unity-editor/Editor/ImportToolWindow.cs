@@ -1348,11 +1348,11 @@ namespace ToolImport.Editor
                 EditorGUI.DrawRect(sepRect, Styles.SeparatorColor);
             }
 
-            var files = new List<string>();
-            foreach (string[] file in detailRecords.Of("WILLINSTALL"))
-            {
-                if (file.Length >= 1) files.Add(file[0]);
-            }
+            // Only this engine's inventory: a cross-engine tool's other payload never lands in
+            // this project, and listing it here would read as "these files are about to be
+            // written". The engine is filtered by the reader, which also keeps an unqualified
+            // (engine-less) declaration visible.
+            List<string> files = detailRecords.WillInstall(EngineName);
             if (files.Count > 0)
             {
                 EditorGUILayout.Space();

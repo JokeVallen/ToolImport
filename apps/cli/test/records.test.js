@@ -47,6 +47,11 @@ function find(records, type) {
   return records.find((r) => r.type === type);
 }
 
+/** Every WILLINSTALL record as [file, engine], in order. */
+function fileRecords(records) {
+  return records.filter((r) => r.type === 'WILLINSTALL').map((r) => r.fields);
+}
+
 const DOC = {
   kind: 'tool',
   formatVersion: '3',
@@ -75,6 +80,9 @@ function model(overrides = {}) {
     engines: ['unity'],
     tags: DOC.tags,
     entry: { releasedAt: '2026-01-15', yanked: false, notes: 'First release.' },
+    // formatVersion 3 puts the declared inventory on the (version, engine) pair, not at the
+    // top level, so the stand-in has to carry it there too.
+    allTargets: [{ engine: 'unity', files: ['Assets/MyTool/MyTool.cs'] }],
     ...overrides,
   };
 }
@@ -176,9 +184,41 @@ test('a dependency carries its constraint, optionality and reason', () => {
 });
 
 test('declared files are reported so the plan can be previewed', () => {
+  // The regression: the inventory moved to versions[].targets.<engine>.artifact.files, so
+  // reading the top-level `files` reported nothing and the editor's "Installs N file(s)"
+  // section was always empty.
   const records = capture(() => toolDetail(DOC, model()));
-  const files = records.filter((r) => r.type === 'WILLINSTALL').map((r) => r.fields[0]);
-  assert.deepEqual(files, ['Assets/MyTool/MyTool.cs']);
+  assert.equal(fileRecords(records).length, 1);
+});
+
+test('each declared file carries the engine it belongs to', () => {
+  // Appended, so index 0 is still the file for a reader that only ever looked there.
+  const records = capture(() => toolDetail(DOC, model()));
+  assert.deepEqual(fileRecords(records), [['Assets/MyTool/MyTool.cs', 'unity']]);
+});
+
+test('a cross-engine tool reports each engine\'s inventory apart', () => {
+  // Concatenating two engines' inventories would tell a Unity user that a Godot payload is
+  // about to be written into Assets, which is false.
+  const records = capture(() => toolDetail(DOC, model({
+    engines: ['godot', 'unity'],
+    allTargets: [
+      { engine: 'godot', files: ['addons/my_tool/plugin.cfg'] },
+      { engine: 'unity', files: ['Assets/MyTool/MyTool.cs'] },
+    ],
+  })));
+  assert.deepEqual(fileRecords(records), [
+    ['addons/my_tool/plugin.cfg', 'godot'],
+    ['Assets/MyTool/MyTool.cs', 'unity'],
+  ]);
+});
+
+test('a declaration with no engine is still reported, unqualified', () => {
+  // No model means an older shaped document, or a caller that has not resolved a release.
+  // Dropping the inventory would be the original bug; an empty engine field says "not tied
+  // to one engine", which a front end may show for any engine.
+  const records = capture(() => toolDetail(DOC, undefined));
+  assert.deepEqual(fileRecords(records), [['Assets/MyTool/MyTool.cs', '']]);
 });
 
 test('the stream opens with its contract version', () => {

@@ -46,6 +46,7 @@ namespace CsharpCheck
             ResultStillReadsPlainResultRecords();
             MissingKeyFallsBack();
             ProblemsAreCollected();
+            DeclaredFilesAreFilteredByEngine();
             PlanToolFieldsStayAligned();
             UnescapeHandlesTabAndNewline();
             SearchMatchesTheRightFields();
@@ -117,6 +118,38 @@ namespace CsharpCheck
             Check("both ERROR and PROBLEM are collected", problems.Count == 2, problems.Count.ToString());
             Check("a problem keeps its code", problems.Count > 0 && problems[0].StartsWith("E-ARTIFACT-HASH"),
                 problems.Count > 0 ? problems[0] : "(none)");
+        }
+
+        /// <summary>
+        /// WILLINSTALL carries the engine it belongs to, and the reader filters on it.
+        /// </summary>
+        /// <remarks>
+        /// This is verbatim `utool show x --records` output. Before formatVersion 3 the inventory
+        /// was a top-level list and the record had one field; reading that field alone was right
+        /// then and wrong after the inventory moved onto (version, engine), where it produced an
+        /// empty "Installs" section for every tool - a section that showed nothing rather than
+        /// nothing existing.
+        /// </remarks>
+        private static void DeclaredFilesAreFilteredByEngine()
+        {
+            BackendRecords records = BackendRecords.Parse(
+                "WILLINSTALL\tAssets/MyTool/MyTool.cs\tunity\n" +
+                "WILLINSTALL\taddons/my_tool/plugin.cfg\tgodot\n" +
+                "WILLINSTALL\tREADME.txt\t\n");
+
+            List<string> unity = records.WillInstall("unity");
+            Check("this engine's file is reported", unity.Contains("Assets/MyTool/MyTool.cs"),
+                string.Join(",", unity));
+            Check("another engine's file is not", !unity.Contains("addons/my_tool/plugin.cfg"),
+                string.Join(",", unity));
+            Check("an unqualified declaration is shown for any engine", unity.Contains("README.txt"),
+                string.Join(",", unity));
+            Check("the count is per engine, not the stream", unity.Count == 2, unity.Count.ToString());
+
+            List<string> none = records.WillInstall(string.Empty);
+            Check("no engine means no filtering", none.Count == 3, none.Count.ToString());
+            Check("field 0 is still the file", none.Count > 0 && none[0] == "Assets/MyTool/MyTool.cs",
+                none.Count > 0 ? none[0] : "(none)");
         }
 
         /// <summary>

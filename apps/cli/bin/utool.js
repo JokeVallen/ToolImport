@@ -504,6 +504,7 @@ async function cmdShow({ registryLocator, flags, positionals }) {
       }
       if (target.files.length > 0) {
         out.line(`           installs ${target.files.length} file(s)`);
+        for (const file of target.files) out.line(`             ${file}`);
       }
     }
   }
@@ -515,12 +516,6 @@ async function cmdShow({ registryLocator, flags, positionals }) {
       const kind = dep.optional ? 'optional' : 'required';
       out.line(`  - ${dep.id} ${dep.version ?? '*'} (${kind})${dep.reason ? ` - ${dep.reason}` : ''}`);
     }
-  }
-
-  if (manifest.files.length > 0) {
-    out.line('');
-    out.line('installs:');
-    for (const file of manifest.files) out.line(`  - ${file}`);
   }
   return EXIT.OK;
 }
