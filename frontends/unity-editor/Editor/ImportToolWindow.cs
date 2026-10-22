@@ -359,11 +359,13 @@ namespace ToolImport.Editor
         /// One command waiting for the in-flight one to finish.
         /// </summary>
         /// <remarks>
-        /// Single-slot on purpose. A queue would let a burst of clicks pile up commands
-        /// that are stale by the time they run; keeping only the newest is both simpler
-        /// and closer to what the user meant.
+        /// Single-slot on purpose, and the NEWEST request replaces the waiting one - see
+        /// <see cref="PendingCommand"/>, which explains what last-wins fixes.
         /// </remarks>
-        private Action queuedCommand;
+        private readonly PendingCommand queuedCommand = new PendingCommand();
+
+        /// <summary>Control name of the install-directory field, so its placeholder can hide.</summary>
+        private const string INSTALL_INTO_CONTROL = "toolimport.installInto";
 
         private string EngineName = "unity";
         private Vector2 dependencyScrollPos;
@@ -1434,6 +1436,11 @@ namespace ToolImport.Editor
         /// </remarks>
         private void DrawInstallDirectory(bool installable)
         {
+            ToolTargetInfo mine = FindMyTarget();
+            string declared = mine == null || string.IsNullOrEmpty(mine.ContentRoot)
+                ? string.Empty
+                : mine.ContentRoot;
+
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.LabelField("Install into", GUILayout.Width(96f));
@@ -1442,8 +1449,34 @@ namespace ToolImport.Editor
                 string typed;
                 using (new EditorGUI.DisabledScope(busy || !installable))
                 {
-                    typed = EditorGUILayout.TextField(
-                        overrideDirectory, EditorStyles.textField, GUILayout.ExpandWidth(true));
+                    // Drawn by hand rather than with EditorGUILayout.TextField so a placeholder can
+                    // sit inside the empty field. An empty field that looks like every other field
+                    // reads as "this is filled in with nothing", which is a different thing from
+                    // "empty means the manifest's destination".
+                    Rect fieldRect = EditorGUILayout.GetControlRect(
+                        false, EditorGUIUtility.singleLineHeight, GUILayout.ExpandWidth(true));
+                    GUI.SetNextControlName(INSTALL_INTO_CONTROL);
+                    typed = EditorGUI.TextField(fieldRect, overrideDirectory);
+
+                    if (typed.Length == 0 && GUI.GetNameOfFocusedControl() != INSTALL_INTO_CONTROL)
+                    {
+                        GUIStyle placeholder = Styles.GetOrCacheStyle(
+                            "installIntoPlaceholder",
+                            () => Styles.GetStyle(EditorStyles.miniLabel, style =>
+                            {
+                                style.fontStyle = FontStyle.Italic;
+                                style.alignment = TextAnchor.MiddleLeft;
+                                style.normal.textColor = EditorGUIUtility.isProSkin
+                                    ? new Color(0.65f, 0.65f, 0.65f)
+                                    : new Color(0.45f, 0.45f, 0.45f);
+                            }));
+                        GUI.Label(
+                            new Rect(fieldRect.x + 4f, fieldRect.y, fieldRect.width - 8f, fieldRect.height),
+                            declared.Length > 0
+                                ? "empty: as declared, under " + declared
+                                : "empty: as the manifest declares",
+                            placeholder);
+                    }
                 }
                 if (typed != overrideDirectory)
                 {
@@ -1461,17 +1494,19 @@ namespace ToolImport.Editor
 
             if (!installable) return;
 
-            ToolTargetInfo mine = FindMyTarget();
-            string declared = mine == null || string.IsNullOrEmpty(mine.ContentRoot)
-                ? string.Empty
-                : mine.ContentRoot;
-
             EditorGUILayout.LabelField(
                 InstallDirectoryFor(selectedId).Length > 0
-                    ? "A project-relative folder. The tool keeps its own subfolder inside it."
+                    ? "Project-relative, e.g. Assets/Vendor. This REPLACES the folder the tool " +
+                      "would install into - everything inside it keeps its layout, so " +
+                      "Assets/IMGUILib/Core/x.cs lands at <your folder>/Core/x.cs. Absolute paths " +
+                      "and '..' are refused; the resolved paths are in the plan below."
                     : declared.Length > 0
-                        ? "Default: under " + declared + ", as the manifest declares. Type a folder to place it elsewhere."
-                        : "Type a project-relative folder to choose where it goes.",
+                        ? "Project-relative, e.g. Assets/Vendor; empty means under " + declared +
+                          ", as the manifest declares. The folder the tool occupies is derived from " +
+                          "the artifact, so the exact default appears in the plan. Absolute paths " +
+                          "and '..' are refused."
+                        : "Project-relative, e.g. Assets/Vendor. Empty installs where the manifest " +
+                          "declares; absolute paths and '..' are refused.",
                 EditorStyles.wordWrappedMiniLabel);
         }
 
@@ -1713,22 +1748,28 @@ namespace ToolImport.Editor
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (!string.IsNullOrEmpty(homepage) && DrawLink("Homepage", homepage))
+                    // Separated by a middot. Two links drawn side by side with only their own
+                    // padding between them read as one phrase ("Documentation Release notes"),
+                    // and in a row whose labels are words rather than underlines nothing marks
+                    // where one destination ends and the next begins.
+                    bool firstLink = true;
+                    if (DrawLinkAfterSeparator("Homepage", homepage, ref firstLink))
                     {
                         Application.OpenURL(homepage);
                     }
-                    if (!string.IsNullOrEmpty(documentation) && DrawLink("Documentation", documentation))
+                    if (DrawLinkAfterSeparator("Documentation", documentation, ref firstLink))
                     {
                         Application.OpenURL(documentation);
                     }
-                    if (!string.IsNullOrEmpty(releaseNotes) && DrawLink("Release notes", releaseNotes))
+                    if (DrawLinkAfterSeparator("Release notes", releaseNotes, ref firstLink))
                     {
                         Application.OpenURL(releaseNotes);
                     }
                     // The licence name alone, with no "License:" prefix: in a row of four links
                     // a prefixed one reads as a labelled field, and "MIT" next to "Homepage"
                     // is not ambiguous - the tooltip says where it goes.
-                    if (licenseUrl.Length > 0 && DrawLink(string.IsNullOrEmpty(license) ? "License" : license, licenseUrl))
+                    if (DrawLinkAfterSeparator(
+                            string.IsNullOrEmpty(license) ? "License" : license, licenseUrl, ref firstLink))
                     {
                         Application.OpenURL(licenseUrl);
                     }
@@ -1759,6 +1800,36 @@ namespace ToolImport.Editor
             Rect rect = GUILayoutUtility.GetRect(content, style);
             EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
             return GUI.Button(rect, content, style);
+        }
+
+        /// <summary>
+        /// A link, with a middot in front of it unless it is the first one drawn.
+        /// </summary>
+        /// <remarks>
+        /// The separator is drawn HERE rather than between the links at the call site so that a
+        /// link which is not declared leaves no dangling dot behind it: the only links that
+        /// exist are the ones that were asked for, and the first of them never carries one.
+        /// </remarks>
+        private static bool DrawLinkAfterSeparator(string label, string url, ref bool first)
+        {
+            if (string.IsNullOrEmpty(url)) return false;
+
+            if (!first)
+            {
+                GUIStyle separator = Styles.GetOrCacheStyle(
+                    "linkSeparator",
+                    () => Styles.GetStyle(EditorStyles.miniLabel, style =>
+                    {
+                        style.alignment = TextAnchor.MiddleCenter;
+                        style.normal.textColor = EditorGUIUtility.isProSkin
+                            ? new Color(0.6f, 0.6f, 0.6f)
+                            : new Color(0.4f, 0.4f, 0.4f);
+                    }));
+                GUILayout.Label("·", separator, GUILayout.Width(14f));
+            }
+
+            first = false;
+            return DrawLink(label, url);
         }
 
         /// <summary>
@@ -2149,6 +2220,11 @@ namespace ToolImport.Editor
         {
             if (busy)
             {
+                // Queued, not dropped. Dropping was the other half of the version bug: the pin
+                // moved to 0.9.0, the refetch was silently refused because the right-click that
+                // opened the menu was still running, and the pane went on describing 1.0.0 with
+                // nothing on screen saying so.
+                QueueCommand(() => Run(arguments, onSuccess, dryRun));
                 return;
             }
 
@@ -2220,15 +2296,15 @@ namespace ToolImport.Editor
         /// </remarks>
         private void QueueCommand(Action command)
         {
-            if (command == null || queuedCommand != null) return;
-            queuedCommand = command;
+            // Overwritten rather than appended: when several requests are waiting, only the
+            // newest can describe what the user is looking at.
+            queuedCommand.Post(command);
         }
 
         /// <summary>Start whatever was queued, now that no command is in flight.</summary>
         private void FlushQueue()
         {
-            Action next = queuedCommand;
-            queuedCommand = null;
+            Action next = queuedCommand.Take();
             if (next != null) next();
         }
 

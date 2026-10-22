@@ -171,7 +171,7 @@ export async function resolveSelection(requestedIds, fetchManifest, options = {}
       // chosen version has to be remembered and planned from, because reading the
       // manifest's default could install a version the constraint excluded.
       const chosen = resolveDependencyVersion(
-        target, dep, id, problems, dependencyChoices,
+        target, dep, id, problems, dependencyChoices, versionsRequested,
       );
       if (!chosen) continue;
 
@@ -416,9 +416,15 @@ function satisfiesEngineDeps(provider, engine, manifests, problems) {
  * asking for `^0.9.0` would silently receive 1.0.0 and the receipt would describe
  * something the consumer never agreed to.
  *
+ * @param {Map<string, string>} versionsRequested the plan-wide pin this function narrows;
+ *   passed in rather than closed over, because this is a module-level function and closing
+ *   over a resolver local is what made it throw `versionsRequested is not defined` at the
+ *   first constraint on a multi-version dependency.
  * @returns {import('./manifest.js').ToolVersion|null} the chosen release
  */
-function resolveDependencyVersion(manifest, dep, dependentId, problems, dependencyChoices) {
+function resolveDependencyVersion(
+  manifest, dep, dependentId, problems, dependencyChoices, versionsRequested,
+) {
   if (!manifest.hasVariants) {
     // One published version: the constraint either admits it or is reported, which is
     // the pre-multi-version behaviour and worth keeping explicit.

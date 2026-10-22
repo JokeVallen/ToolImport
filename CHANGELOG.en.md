@@ -45,6 +45,35 @@ area rather than by release date. Nothing here has been published.
 - `--into` with an absolute path or a drive letter is refused before anything is downloaded;
   a leading `/` used to be silently stripped into a relative directory.
 
+## Choosing a version, and a destination that explains itself
+
+### Added
+
+- **A placeholder, and a plain statement of the rules, on `Install into`.** The field was blank
+  and silent: nothing said whether the value is project-relative or absolute, and nothing said
+  what happens to the folder the tool already occupies. Empty now reads "empty: as declared,
+  under Assets", and the line below says that the value is project-relative, that absolute paths
+  and `..` are refused, and that it REPLACES the tool's own directory - the files inside keep
+  their layout, so `Assets/IMGUILib/Core/x.cs` becomes `<your folder>/Core/x.cs`. The same
+  explanation is in both READMEs.
+- **A separator between the detail links.** "Homepage Documentation Release notes MIT" drawn as
+  four adjacent buttons read as one phrase; a middot now marks where each destination ends.
+
+### Fixed
+
+- **`plan` failed for every tool with a multi-version dependency**, reporting
+  `versionsRequested is not defined`. That name is a local of `resolveSelection`, but the
+  function narrowing a dependency's version is module-level and read it as if it were in scope.
+  It is now passed in. `editor-coroutines-lit` was the tool that hit it, because it constrains
+  two libraries that publish more than one release. The resolver had no test at all; it has four
+  now, covering the constraint, the intersection of two consumers, an unsatisfiable constraint,
+  and an explicit `id@version`.
+- **Choosing a release showed the other one.** Picking 0.9.0 displayed 1.0.0, and picking 1.0.0
+  displayed 0.9.0. Two defects in the same place: a backend call made while another was running
+  was dropped outright (so the pin moved but the pane was never re-read), and the single waiting
+  slot kept the FIRST request even though its own comment claimed it kept the newest. Requests
+  now queue, and the newest one replaces the waiting one.
+
 ## The declared inventory reaches the editor again
 
 ### Fixed

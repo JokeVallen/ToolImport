@@ -322,6 +322,7 @@ namespace UnityEngine
         public static Color color = new Color(1f, 1f, 1f, 1f);
         public static GUISkin skin = new GUISkin();
         public static void Label(Rect rect, GUIContent content, GUIStyle style) { }
+        public static void Label(Rect rect, string text, GUIStyle style) { }
         public static void DrawTexture(Rect rect, Texture2D texture) { }
         public static void DrawTexture(Rect rect, Texture2D texture, ScaleMode scaleMode) { }
         public static bool Button(Rect rect, GUIContent content) => false;
@@ -638,6 +639,9 @@ namespace UnityEditor
         }
 
         public static void DrawRect(Rect rect, Color color) { }
+        /// <summary>A text field at an explicit rect, for drawing a placeholder inside it.</summary>
+        public static string TextField(Rect rect, string text) => text;
+        public static string TextField(Rect rect, string text, GUIStyle style) => text;
         public static bool enabled { get; set; }
         public static Color color = new Color(1f, 1f, 1f, 1f);
         public static Color backgroundColor = new Color(0.5f, 0.5f, 0.5f, 1f);

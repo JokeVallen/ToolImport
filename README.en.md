@@ -92,6 +92,12 @@ layout):
 node apps/cli/bin/utool.js install imgui-lib --into "Assets/Plugins/IMGUILib" --project "C:\path\to\UnityProject"
 ```
 
+`--into` is **project-relative**; absolute paths and `..` are refused. It replaces the directory
+the tool already occupies rather than nesting inside it: a tool that lands at `Assets/IMGUILib`
+(with `Core/…` below it) and is given `Assets/Vendor` puts `Assets/IMGUILib/Core/x.cs` at
+`Assets/Vendor/Core/x.cs`, keeping the internal layout. The default root is derived from the
+paths inside the artifact, so the exact value is in the plan (`installRoot` on `PLANTOOL`).
+
 The actual destination is recorded in the receipt, so uninstalling needs no reminder.
 
 ## Output modes

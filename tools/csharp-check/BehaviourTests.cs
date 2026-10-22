@@ -47,6 +47,7 @@ namespace CsharpCheck
             MissingKeyFallsBack();
             ProblemsAreCollected();
             DeclaredFilesAreFilteredByEngine();
+            TheNewestWaitingCommandWins();
             PlanToolFieldsStayAligned();
             UnescapeHandlesTabAndNewline();
             SearchMatchesTheRightFields();
@@ -153,6 +154,36 @@ namespace CsharpCheck
         }
 
         /// <summary>
+        /// The single waiting slot keeps the NEWEST request, not the first.
+        /// </summary>
+        /// <remarks>
+        /// The reported bug: choosing release 0.9.0 showed 1.0.0's details, and choosing 1.0.0
+        /// showed 0.9.0's. Both halves came from this slot - the newest pin was recorded while
+        /// the FIRST waiting request won the race to run, and a request that could not wait was
+        /// dropped outright.
+        /// </remarks>
+        private static void TheNewestWaitingCommandWins()
+        {
+            var slot = new PendingCommand();
+            Check("an empty slot has nothing to run", !slot.HasPending && slot.Take() == null);
+
+            string ran = string.Empty;
+            slot.Post(() => ran = "first");
+            slot.Post(() => ran = "second");
+            Check("the newest request is the one waiting", slot.HasPending);
+
+            Action next = slot.Take();
+            Check("taking empties the slot", !slot.HasPending && slot.Take() == null);
+            Check("a command is returned", next != null);
+            if (next != null) next();
+            Check("the superseded request never runs", ran == "second", ran);
+
+            slot.Post(null);
+            Check("posting nothing leaves the slot empty", !slot.HasPending);
+        }
+
+
+        /// <summary>
         /// PLANTOOL is positional. If records.js ever reorders it, this fails here
         /// rather than showing the wrong column in the editor.
         /// </summary>
@@ -160,7 +191,6 @@ namespace CsharpCheck
         {
             const string stream =
                 "PLANTOOL\tcore-editor-utils\t1.1.0\tunity\tpackage\tunitypackage\t1709\tsha\t\tfalse\tuser\t\n";
-
             BackendRecords records = BackendRecords.Parse(stream);
             string[] fields = null;
             foreach (string[] candidate in records.Of("PLANTOOL"))

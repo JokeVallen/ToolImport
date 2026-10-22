@@ -70,6 +70,11 @@ node apps/cli/bin/utool.js status  --project "C:\path\to\UnityProject"
 node apps/cli/bin/utool.js install imgui-lib --into "Assets/Plugins/IMGUILib" --project "C:\path\to\UnityProject"
 ```
 
+`--into` 是**工程相对路径**，绝对路径和 `..` 都会被拒绝。它替换的是**工具自己占用的那个目录**，
+不是往里再套一层：例如工具默认落在 `Assets/IMGUILib`（其下有 `Core/…`），给 `Assets/Vendor`
+之后，`Assets/IMGUILib/Core/x.cs` 会落到 `Assets/Vendor/Core/x.cs`，内部布局不变。默认目录由制品
+里的实际路径反推得出，所以确切值在计划里（`PLANTOOL` 的 `installRoot`）。
+
 实际落点记在回执里，所以卸载不需要再被告知一次。
 
 ## 输出模式
