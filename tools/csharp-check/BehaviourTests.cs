@@ -328,14 +328,14 @@ namespace CsharpCheck
         }
 
         /// <summary>
-        /// The licence link is derived from the SPDX id, and only when the value is shaped
-        /// like one.
+        /// The licence link: the manifest's own URL when it declared one, otherwise the SPDX
+        /// page for the identifier, and only when the value is shaped like one.
         ///
         /// `license` is an identifier, not a URL: the schema documents it as an SPDX id and
-        /// constrains it to `[A-Za-z0-9.-+]`, so spdx.org is where the value already points and
-        /// no new metadata is needed to make it clickable. The shape check is for data that
-        /// bypassed the schema ("see LICENSE"), where percent-encoding into a spdx.org URL
-        /// would produce a dead link that looks authoritative.
+        /// constrains it to `[A-Za-z0-9.-+]`, so spdx.org is where the value already points.
+        /// The shape check is for data that bypassed the schema ("see LICENSE"), where
+        /// percent-encoding into a spdx.org URL would produce a dead link that looks
+        /// authoritative.
         /// </summary>
         private static void LicenceLinksOnlyForIdentifiers()
         {
@@ -354,6 +354,19 @@ namespace CsharpCheck
                 ImportToolWindow.LicenseUrl("../LICENSE"));
             Check("an empty licence is not linked", ImportToolWindow.LicenseUrl("") == string.Empty);
             Check("a null licence is not linked", ImportToolWindow.LicenseUrl(null) == string.Empty);
+            // A manifest may name its own licence destination, which is why `licenseUrl` exists:
+            // not every licence has an SPDX page, and a project that ships its own LICENSE file
+            // means that file. A declared destination beats the derived one.
+            Check(
+                "a declared licence URL wins over the identifier's page",
+                ImportToolWindow.LicenseUrl("MIT", "https://example.invalid/LICENSE.txt")
+                    == "https://example.invalid/LICENSE.txt",
+                ImportToolWindow.LicenseUrl("MIT", "https://example.invalid/LICENSE.txt"));
+            Check(
+                "a declared URL is used even with no identifier",
+                ImportToolWindow.LicenseUrl("", "https://example.invalid/LICENSE")
+                    == "https://example.invalid/LICENSE",
+                ImportToolWindow.LicenseUrl("", "https://example.invalid/LICENSE"));
         }
 
         /// <summary>

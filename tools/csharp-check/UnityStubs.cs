@@ -363,6 +363,8 @@ namespace UnityEngine
         public static GUIStyle toolbarSearchField = new GUIStyle();
         public static GUIStyle toolbarPopup = new GUIStyle();
         public static GUIStyle textArea = new GUIStyle();
+        /// <summary>Text-entry field; what EditorGUILayout.TextField draws with.</summary>
+        public static GUIStyle textField = new GUIStyle();
         public static GUIStyle label = new GUIStyle();
         public static GUIStyle miniBoldLabel = new GUIStyle();
         /// <summary>White text, used to tint an installed row's label without recolouring the rest.</summary>

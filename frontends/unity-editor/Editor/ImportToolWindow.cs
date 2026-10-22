@@ -372,6 +372,17 @@ namespace ToolImport.Editor
         private readonly List<string> facts = new List<string>();
         private readonly StringBuilder stringBuilder = new StringBuilder();
 
+        /// <summary>
+        /// Directories the user chose for individual tools, keyed by tool id.
+        /// </summary>
+        /// <remarks>
+        /// In memory only, and deliberately: a destination is a choice made for the next install,
+        /// not project state. Persisting it would let a stale folder - typed once, forgotten,
+        /// then applied to a reinstall months later - silently place a tool somewhere nobody
+        /// expected. Every install states its destination in the confirmation the user reads.
+        /// </remarks>
+        private readonly Dictionary<string, string> installDirectories = new Dictionary<string, string>();
+
         private static readonly string[] filterLabels =
         {
             "All", "Installed", "Not installed", "This engine",
@@ -386,15 +397,6 @@ namespace ToolImport.Editor
 
         /// <summary>Width of the narrow rail left behind when the list is collapsed.</summary>
         private const float COLLAPSED_RAIL_WIDTH = 20f;
-
-        /// <summary>
-        /// How far a version row is indented under the tool row it belongs to.
-        /// </summary>
-        /// <remarks>
-        /// Indentation is the only grouping device available here: the list column has no room
-        /// for a second column, and a border would read as a separate list.
-        /// </remarks>
-        private const float VERSION_INDENT = 18f;
 
         /// <summary>
         /// Whether the tool list is hidden, leaving the details pane the full width.
@@ -1010,9 +1012,13 @@ namespace ToolImport.Editor
                     Event.current.Use();
                 }
 
-                // Right-click selects the row and offers its versions in place. Selecting
-                // first is not a side effect: a pin belongs to a tool, so the menu cannot
-                // offer the versions of one row while a different row is selected.
+                // Right-click selects the row and offers its versions. Selecting first is not
+                // a side effect: a pin belongs to a tool, so the menu cannot offer the versions
+                // of one row while a different row is selected.
+                //
+                // This is the ONLY version control. An inline list under the row was tried and
+                // removed: it duplicated the menu, grew the list column unpredictably, and put
+                // a per-release choice in a column that describes tools rather than releases.
                 //
                 // Both event shapes are accepted: Windows sends a right MouseDown and the
                 // editor also synthesises ContextClick, while macOS delivers ContextClick
@@ -1024,21 +1030,6 @@ namespace ToolImport.Editor
                     Select(tool.Id);
                     ShowVersionMenu(tool.Id);
                     Event.current.Use();
-                }
-            }
-
-            // The versions open under the SELECTED row, the way the Package Manager's
-            // dropdown sits with the package rather than in the description. Choosing a
-            // release changes what the details describe, so the choice belongs where the
-            // tool was chosen - not buried below a description that is itself per-release.
-            //
-            // Disabled with the row: a pin that changes while a command is in flight would
-            // label the pane with one release while it still shows another.
-            if (selected)
-            {
-                using (new EditorGUI.DisabledScope(busy))
-                {
-                    DrawInlineVersions(tool.Id);
                 }
             }
         }
@@ -1079,116 +1070,22 @@ namespace ToolImport.Editor
         }
 
         /// <summary>
-        /// The selected row's version list, drawn inside the narrow list column.
-        /// </summary>
-        /// <remarks>
-        /// One line per release, indented under the row, because the column is 200-420px and
-        /// a horizontal strip of versions would either clip or wrap unpredictably. A single
-        /// version needs no choice at all, so nothing is drawn for it.
-        /// </remarks>
-        private void DrawInlineVersions(string id)
-        {
-            string latest;
-            List<string> versions = VersionsOf(id, out latest);
-            if (versions.Count <= 1) return;
-
-            string pinned = PinnedVersion();
-            string installedVersion;
-            installedVersions.TryGetValue(id, out installedVersion);
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                GUILayout.Space(VERSION_INDENT);
-
-                using (new EditorGUILayout.VerticalScope())
-                {
-                    foreach (string version in versions)
-                    {
-                        bool isLatest = version == latest;
-                        bool isCurrent = pinned.Length > 0 ? pinned == version : isLatest;
-                        bool isInstalled = !string.IsNullOrEmpty(installedVersion) && version == installedVersion;
-
-                        string text = version
-                            + (isLatest ? "  latest" : string.Empty)
-                            + (isInstalled ? "  installed" : string.Empty);
-
-                        var style = Styles.GetOrCacheStyle(
-                            isCurrent ? "InlineVersionCurrent" : "InlineVersion",
-                            () => Styles.GetStyle(EditorStyles.miniLabel, s =>
-                            {
-                                s.padding = new RectOffset(4, 4, 1, 1);
-                                s.alignment = TextAnchor.MiddleLeft;
-                            }));
-
-                        if (isCurrent)
-                        {
-                            // DrawClickableLabel paints the selection from the style's ON state
-                            // (it also passes `on: isSelected` to Draw), so the fill belongs in
-                            // onNormal/onHover/onActive. Setting `normal` would have looked
-                            // correct in the code and drawn nothing for the selected release.
-                            var fill = Styles.GetOrCacheTexture(
-                                "VersionCurrentTexture",
-                                () => SolidTexture(Styles.SelectionFill));
-
-                            style.onNormal.background = fill;
-                            style.onNormal.textColor = Styles.SelectedTextColor;
-                            style.onHover.background = fill;
-                            style.onHover.textColor = Styles.SelectedTextColor;
-                            style.onActive.background = fill;
-                            style.onActive.textColor = Styles.SelectedTextColor;
-                        }
-                        else
-                        {
-                            // A version row is clickable, so it has to look clickable: miniLabel
-                            // has no hover state of its own, and a row that stays pixel-identical
-                            // under the pointer reads as text.
-                            var hover = Styles.GetOrCacheTexture(
-                                "VersionHoverTexture",
-                                () => SolidTexture(new Color(1f, 1f, 1f, 0.10f)));
-
-                            style.onHover.background = hover;
-                            style.onActive.background = hover;
-                        }
-
-                        if (IMGUIUtility.DrawClickableLabel(text, isCurrent, style))
-                        {
-                            PinVersion(version);
-                        }
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// A 1x1 texture of one colour, for fills that IMGUI draws as a background.
-        /// </summary>
-        /// <remarks>
-        /// HideAndDontSave so it is not written into the project or destroyed by a scene
-        /// change; Point filtering so a stretched 1px texture stays one flat colour.
-        /// </remarks>
-        private static Texture2D SolidTexture(Color color)
-        {
-            var texture = new Texture2D(1, 1);
-            texture.SetPixel(0, 0, color);
-            texture.filterMode = FilterMode.Point;
-            texture.wrapMode = TextureWrapMode.Clamp;
-            texture.Apply();
-            texture.hideFlags = HideFlags.HideAndDontSave;
-            return texture;
-        }
-
-        /// <summary>
         /// The right-click menu for a row: one entry per release, checked against the pin.
         /// </summary>
         /// <remarks>
-        /// The same choice as the inline list, offered where a user with a long version list
-        /// will look for it. Both call PinVersion, so the two paths cannot drift apart.
+        /// The only way to choose a release, and the menu has to carry BOTH facts a chooser
+        /// needs: which release is currently pinned (the check mark) and which one is actually
+        /// installed (the suffix). "Installed" is not "selected": a user can browse 1.0.0 while
+        /// 1.2.0 is what this project has, and an update is exactly the case where the two
+        /// differ - the checked entry would otherwise look like the installed one.
         /// </remarks>
         private void ShowVersionMenu(string id)
         {
             string latest;
             List<string> versions = VersionsOf(id, out latest);
             string pinned = PinnedVersion();
+            string installedVersion;
+            installedVersions.TryGetValue(id, out installedVersion);
 
             var menu = new GenericMenu();
             if (versions.Count == 0)
@@ -1202,8 +1099,13 @@ namespace ToolImport.Editor
                     string chosen = version;
                     bool isLatest = version == latest;
                     bool isCurrent = pinned.Length > 0 ? pinned == version : isLatest;
+                    bool isInstalled = !string.IsNullOrEmpty(installedVersion) && version == installedVersion;
+
                     menu.AddItem(
-                        new GUIContent(version + (isLatest ? "  (latest)" : string.Empty)),
+                        new GUIContent(
+                            version
+                            + (isLatest ? "  (latest)" : string.Empty)
+                            + (isInstalled ? "  • installed" : string.Empty)),
                         isCurrent,
                         () => PinVersion(chosen));
                 }
@@ -1274,12 +1176,14 @@ namespace ToolImport.Editor
             EditorGUILayout.LabelField("Description", EditorStyles.boldLabel);
             CopyableLabel(detailRecords.Detail("description"));
 
+            // Four sections, each a header and its own list. The umbrella "Capabilities" header
+            // was dropped with the chip row: with a header per section it added a fifth heading
+            // that had no content of its own.
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Capabilities", EditorStyles.boldLabel);
-            DrawMultiValue("Engines", detailRecords.Detail("engines"));
-            DrawMultiValue("Provides", detailRecords.Detail("provides"));
-            DrawMultiValue("Injects", detailRecords.Detail("injects"));
-            DrawMultiValue("Tags", detailRecords.Detail("tags"));
+            DrawListSection("Engines", detailRecords.Detail("engines"));
+            DrawListSection("Provides", detailRecords.Detail("provides"));
+            DrawListSection("Injects", detailRecords.Detail("injects"));
+            DrawListSection("Tags", detailRecords.Detail("tags"));
             var targets = new List<ToolTargetInfo>();
             foreach (string[] fields in detailRecords.Of("TARGET"))
             {
@@ -1482,6 +1386,8 @@ namespace ToolImport.Editor
                 EditorGUILayout.HelpBox("Cannot install this tool.\n\n" + reason, MessageType.Warning);
             }
 
+            DrawInstallDirectory(installable);
+
             EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(busy || !installable))
             {
@@ -1508,6 +1414,93 @@ namespace ToolImport.Editor
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
+        }
+
+        /// <summary>
+        /// Where the selected tool is installed, and the override for it.
+        /// </summary>
+        /// <remarks>
+        /// The manifest declares the directory, which is right for most tools and wrong for
+        /// anyone whose project is laid out differently - a tool that must live under
+        /// Assets/Plugins, or one installed into a shared vendor folder. The value here is
+        /// passed to the backend as `--into`, and the backend records the directory in the
+        /// receipt, so uninstall finds the files afterwards without being told again.
+        ///
+        /// Empty means "as the manifest declares", and the label shows what that is, because a
+        /// blank field with no hint is indistinguishable from a field the window failed to read.
+        /// The exact directory of an unpacked tool is only known once its artifact is inspected
+        /// (the manifest names the container's root, not the tool's), so the plan below is where
+        /// the resolved paths appear.
+        /// </remarks>
+        private void DrawInstallDirectory(bool installable)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("Install into", GUILayout.Width(96f));
+
+                string overrideDirectory = InstallDirectoryFor(selectedId);
+                string typed;
+                using (new EditorGUI.DisabledScope(busy || !installable))
+                {
+                    typed = EditorGUILayout.TextField(
+                        overrideDirectory, EditorStyles.textField, GUILayout.ExpandWidth(true));
+                }
+                if (typed != overrideDirectory)
+                {
+                    SetInstallDirectory(selectedId, typed);
+                }
+
+                using (new EditorGUI.DisabledScope(busy || !installable || overrideDirectory.Length == 0))
+                {
+                    if (GUILayout.Button("Default", EditorStyles.miniButton, GUILayout.Width(58f)))
+                    {
+                        SetInstallDirectory(selectedId, string.Empty);
+                    }
+                }
+            }
+
+            if (!installable) return;
+
+            ToolTargetInfo mine = FindMyTarget();
+            string declared = mine == null || string.IsNullOrEmpty(mine.ContentRoot)
+                ? string.Empty
+                : mine.ContentRoot;
+
+            EditorGUILayout.LabelField(
+                InstallDirectoryFor(selectedId).Length > 0
+                    ? "A project-relative folder. The tool keeps its own subfolder inside it."
+                    : declared.Length > 0
+                        ? "Default: under " + declared + ", as the manifest declares. Type a folder to place it elsewhere."
+                        : "Type a project-relative folder to choose where it goes.",
+                EditorStyles.wordWrappedMiniLabel);
+        }
+
+        /// <summary>The directory the user chose for a tool, or empty when they chose none.</summary>
+        private string InstallDirectoryFor(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return string.Empty;
+            string directory;
+            return installDirectories.TryGetValue(id, out directory) ? directory : string.Empty;
+        }
+
+        private void SetInstallDirectory(string id, string directory)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            string trimmed = (directory ?? string.Empty).Trim();
+            if (trimmed.Length == 0) installDirectories.Remove(id);
+            else installDirectories[id] = trimmed;
+
+            // A plan describes one destination. Keeping the old one on screen beside a new
+            // destination would be the same disagreement the plan/write separation exists to avoid.
+            planRecords = null;
+        }
+
+        /// <summary>The `--into` argument for the selected tool, or empty.</summary>
+        private string IntoArgument()
+        {
+            string directory = InstallDirectoryFor(selectedId);
+            if (directory.Length == 0) return string.Empty;
+            return " --into \"" + directory + "\"";
         }
 
         /// <summary>
@@ -1652,12 +1645,16 @@ namespace ToolImport.Editor
             string homepage = detailRecords.Detail("homepage");
             string deprecated = detailRecords.Detail("deprecated");
 
+            // Resolved BEFORE the facts line: whether the licence belongs there depends on
+            // whether it ends up as a link, and computing it twice let the two disagree.
+            string licenseUrl = LicenseUrl(license, detailRecords.Detail("licenseUrl"));
+
             facts.Clear();
             if (!string.IsNullOrEmpty(version)) facts.Add(version);
             if (!string.IsNullOrEmpty(type)) facts.Add(type);
-            // A licence that has no canonical URL stays inline; otherwise it moves to the link
+            // A licence with no linkable destination stays inline; otherwise it moves to the link
             // row below, because "MIT" is a link to what MIT means, not a bare word.
-            if (!string.IsNullOrEmpty(license) && LicenseUrl(license).Length == 0) facts.Add(license);
+            if (!string.IsNullOrEmpty(license) && licenseUrl.Length == 0) facts.Add(license);
             if (!string.IsNullOrEmpty(author)) facts.Add("by " + author);
             string releasedAt = detailRecords.Detail("releasedAt");
             if (!string.IsNullOrEmpty(releasedAt)) facts.Add("released " + releasedAt);
@@ -1676,19 +1673,26 @@ namespace ToolImport.Editor
                 stringBuilder.Clear();
             }
 
-            // "Installed" alone cannot say "installed, and behind". The version list marks the
-            // installed release, but two numbers in two places is exactly what a reader should
-            // not have to compare; this states it once, where the tool is described.
+            // "Installed" alone cannot say "installed, and behind". The menu marks the installed
+            // release, but two numbers in two places is exactly what a reader should not have to
+            // compare; this states it once, where the tool is described - and names the gesture,
+            // because a right-click menu is invisible until somebody knows it is there.
             string installedAt;
             installedVersions.TryGetValue(selectedId, out installedAt);
             string latestPublished;
-            VersionsOf(selectedId, out latestPublished);
+            List<string> publishedVersions = VersionsOf(selectedId, out latestPublished);
             if (!string.IsNullOrEmpty(installedAt) && !string.IsNullOrEmpty(latestPublished)
                 && installedAt != latestPublished)
             {
                 EditorGUILayout.LabelField(
                     "Installed " + installedAt + ", latest is " + latestPublished +
-                    ". Choose " + latestPublished + " in the list to update.",
+                    ". Right-click this tool in the list to choose " + latestPublished + ".",
+                    EditorStyles.wordWrappedMiniLabel);
+            }
+            else if (publishedVersions.Count > 1)
+            {
+                EditorGUILayout.LabelField(
+                    publishedVersions.Count + " versions published. Right-click this tool in the list to choose one.",
                     EditorStyles.wordWrappedMiniLabel);
             }
 
@@ -1703,7 +1707,6 @@ namespace ToolImport.Editor
             // inside a tool whose whole job is version precision.
             string documentation = detailRecords.Detail("documentation");
             string releaseNotes = detailRecords.Detail("releaseNotes");
-            string licenseUrl = LicenseUrl(license);
 
             if (!string.IsNullOrEmpty(homepage) || !string.IsNullOrEmpty(documentation)
                 || !string.IsNullOrEmpty(releaseNotes) || licenseUrl.Length > 0)
@@ -1722,7 +1725,10 @@ namespace ToolImport.Editor
                     {
                         Application.OpenURL(releaseNotes);
                     }
-                    if (licenseUrl.Length > 0 && DrawLink("License: " + license, licenseUrl))
+                    // The licence name alone, with no "License:" prefix: in a row of four links
+                    // a prefixed one reads as a labelled field, and "MIT" next to "Homepage"
+                    // is not ambiguous - the tooltip says where it goes.
+                    if (licenseUrl.Length > 0 && DrawLink(string.IsNullOrEmpty(license) ? "License" : license, licenseUrl))
                     {
                         Application.OpenURL(licenseUrl);
                     }
@@ -1756,19 +1762,24 @@ namespace ToolImport.Editor
         }
 
         /// <summary>
-        /// The SPDX page for a licence id, or empty when the value is not shaped like one.
+        /// Where a licence id links to: the manifest's own URL when it declared one, otherwise
+        /// the SPDX page for the identifier.
         /// </summary>
         /// <remarks>
         /// `license` is an SPDX identifier, not a URL - the schema says so and constrains it to
-        /// `[A-Za-z0-9.-+]` - so spdx.org is where the value already points, and no new
-        /// metadata is needed to make it a link.
+        /// `[A-Za-z0-9.-+]` - so spdx.org is where the value already points. `licenseUrl` exists
+        /// for the case where it is not: a project that ships its own LICENSE file, or a
+        /// proprietary licence with no SPDX entry. The declared value wins because a maintainer
+        /// who names a destination means that destination.
         ///
-        /// The shape is checked anyway. A hand-edited or third-party manifest can carry
-        /// "see LICENSE", and percent-encoding that into a spdx.org URL would produce a dead
-        /// link that looks authoritative, which is worse than the plain word it replaced.
+        /// The identifier's shape is checked before deriving a URL. A hand-edited or third-party
+        /// manifest can carry "see LICENSE", and percent-encoding that into a spdx.org URL would
+        /// produce a dead link that looks authoritative, which is worse than the plain word it
+        /// replaced.
         /// </remarks>
-        internal static string LicenseUrl(string license)
+        internal static string LicenseUrl(string license, string declared = null)
         {
+            if (!string.IsNullOrEmpty(declared)) return declared;
             if (string.IsNullOrEmpty(license)) return string.Empty;
 
             foreach (char c in license)
@@ -1781,91 +1792,50 @@ namespace ToolImport.Editor
         }
 
         /// <summary>
-        /// A labelled field holding one or more comma-separated values, drawn as chips.
+        /// One capability section: a header, then one indented "- value" line per entry.
         /// </summary>
         /// <remarks>
-        /// Empty means "(none)" and is still shown. Silently omitting the row would leave
-        /// the user unsure whether the tool declares nothing or the window failed to read
-        /// it -- and for `injects`, "nothing" is meaningful information.
+        /// A list rather than a row of chips. Chips were tried and removed: a capability name is
+        /// long ("script.api.argument-guards"), so a row of them wrapped mid-token at whatever
+        /// width the pane happened to have, and two chips 2px apart read as one string. One
+        /// entry per line cannot be misread, and a value is longer than the space between two
+        /// of them is wide.
+        ///
+        /// Empty means "(none)" and is still shown. Silently omitting the section would leave
+        /// the user unsure whether the tool declares nothing or the window failed to read it --
+        /// and for `injects`, "nothing" is meaningful information.
         /// </remarks>
-        private void DrawMultiValue(string label, string commaSeparated)
+        private void DrawListSection(string header, string commaSeparated)
         {
-            var chipStyle = IMGUIUtility.GetDeriveAlignedStyle(GetChipStyle());
-            var labelStyle = IMGUIUtility.GetDeriveAlignedStyle(
-                chipStyle,
-                fontStyle: FontStyle.Bold
-            );
-            labelStyle.SetPadding(5, 0, null, null).SetMargin(0, 0, null, null);
+            EditorGUILayout.LabelField(header, EditorStyles.boldLabel);
 
-            float lineHeight = Mathf.Max(labelStyle.lineHeight, chipStyle.lineHeight);
+            var itemStyle = Styles.GetOrCacheStyle("listSectionItem", () => Styles.GetStyle(
+                EditorStyles.miniLabel,
+                s =>
+                {
+                    // Indented rather than padded with spaces: a space is the wrong width in
+                    // every skin and font, and would not survive rich text or a font change.
+                    s.padding = new RectOffset(16, 0, 0, 0);
+                    s.wordWrap = true;
+                }));
 
-            const float labelWidth = 96f;
-
-            using (new EditorGUILayout.HorizontalScope())
+            var values = new List<string>();
+            foreach (string raw in (commaSeparated ?? string.Empty).Split(','))
             {
-                var content = EditorGUIUtility.TrTempContent(label);
-                GUILayout.Label(content, labelStyle,
-                    GUILayout.Width(labelWidth), GUILayout.Height(lineHeight));
-
-                if (string.IsNullOrEmpty(commaSeparated))
-                {
-                    var noneContent = EditorGUIUtility.TrTempContent("(none)");
-                    GUILayout.Label(noneContent, chipStyle, GUILayout.Height(lineHeight));
-                    GUILayout.FlexibleSpace();
-                    return;
-                }
-
-                float available = Mathf.Max(80f, position.width - ToolListWidth() - 120f);
-                float used = 0f;
-
-                foreach (string raw in commaSeparated.Split(','))
-                {
-                    string value = raw.Trim();
-                    if (value.Length == 0) continue;
-
-                    var valueContent = EditorGUIUtility.TrTempContent(value);
-                    float width = chipStyle.CalcSize(valueContent).x + 6f;
-
-                    if (used + width > available && used > 0f)
-                    {
-                        GUILayout.FlexibleSpace();
-                        EditorGUILayout.EndHorizontal();
-                        EditorGUILayout.BeginHorizontal();
-                        GUILayout.Space(labelWidth);
-                        used = 0f;
-                    }
-
-                    // A rule between chips, not just a gap. The chip background is the flat
-                    // toolbar texture, so two chips 2px apart read as one continuous bar:
-                    // "script.api.argument-guardsscript.api.object-pooling" looked like a
-                    // single long value. `used > 0` also means no rule starts a wrapped line.
-                    if (used > 0f) DrawChipSeparator(lineHeight);
-
-                    GUILayout.Label(valueContent, chipStyle,
-                        GUILayout.Height(lineHeight), GUILayout.Width(width));
-                    used += width + 2f;
-                }
-
-                GUILayout.FlexibleSpace();
+                string value = raw.Trim();
+                if (value.Length > 0) values.Add(value);
             }
-        }
 
-        /// <summary>
-        /// A short vertical rule between two chips on the same row.
-        /// </summary>
-        /// <remarks>
-        /// Drawn as a rect rather than as a character: a glyph's width and vertical position
-        /// depend on the font and the skin, and this has to line up with the chips beside it.
-        /// </remarks>
-        private static void DrawChipSeparator(float lineHeight)
-        {
-            GUILayout.Space(3f);
-            Rect rect = GUILayoutUtility.GetRect(1f, lineHeight, GUILayout.Width(1f), GUILayout.Height(lineHeight));
-            float inset = Mathf.Max(1f, lineHeight * 0.2f);
-            EditorGUI.DrawRect(
-                new Rect(rect.x, rect.y + inset, 1f, Mathf.Max(1f, rect.height - inset * 2f)),
-                Styles.SeparatorColor);
-            GUILayout.Space(3f);
+            if (values.Count == 0)
+            {
+                EditorGUILayout.LabelField("- (none)", itemStyle);
+                return;
+            }
+
+            foreach (string value in values)
+            {
+                EditorGUILayout.LabelField("- " + value, itemStyle);
+            }
         }
 
         /// <summary>Is this tool id present in the loaded listing?</summary>
@@ -1898,18 +1868,6 @@ namespace ToolImport.Editor
             selectedVersion = selectedId + "@" + version;
             planRecords = null;
             Select(selectedId);
-        }
-
-        private static GUIStyle GetChipStyle()
-        {
-            return Styles.GetOrCacheStyle("chip", () => Styles.GetStyle(EditorStyles.miniLabel, s =>
-            {
-                s.padding = new RectOffset(6, 6, 2, 2);
-                s.margin = new RectOffset(0, 2, 1, 1);
-                s.alignment = TextAnchor.MiddleCenter;
-                s.normal.background = EditorStyles.toolbarButton.normal.background;
-                s.SetContentOffset(null, IMGUIUtility.GetFontVerticalOffset(s.fontSize));
-            }));
         }
 
         /// <remarks>
@@ -2079,7 +2037,7 @@ namespace ToolImport.Editor
         private void Plan(bool dryRun)
         {
             if (string.IsNullOrEmpty(selectedId)) return;
-            Run("plan \"" + SelectedReference() + "\"", records =>
+            Run("plan \"" + SelectedReference() + "\"" + IntoArgument(), records =>
             {
                 planRecords = records;
                 List<string> problems = records.Problems();
@@ -2097,17 +2055,19 @@ namespace ToolImport.Editor
             if (string.IsNullOrEmpty(selectedId)) return;
             string pinned = PinnedVersion();
             string target = pinned.Length > 0 ? selectedId + " " + pinned : selectedId;
+            string directory = InstallDirectoryFor(selectedId);
             if (!EditorUtility.DisplayDialog(
                     "Install " + target + "?",
-                    "The plan above was verified. Files will be written and a receipt recorded so this can be " +
-                    "uninstalled cleanly.",
+                    "The plan above was verified. Files will be written" +
+                    (directory.Length > 0 ? " into " + directory : string.Empty) +
+                    " and a receipt recorded so this can be uninstalled cleanly.",
                     "Install",
                     "Cancel"))
             {
                 return;
             }
 
-            Run("install \"" + SelectedReference() + "\"", records =>
+            Run("install \"" + SelectedReference() + "\"" + IntoArgument(), records =>
             {
                 int installed = 0;
                 foreach (string[] ignored in records.Of("INSTALLED"))
@@ -2152,8 +2112,25 @@ namespace ToolImport.Editor
                 {
                     removed++;
                 }
-                statusMessage = string.Format(
-                    "{0} file(s) removed for {1}.", removed, selectedId);
+
+                // A receipt names paths. If the folder was moved after installing, every one of
+                // those paths is gone: the uninstall then removes nothing, clears the receipt and
+                // looks like it worked, while the files are still in the project. Saying so is the
+                // only honest thing this window can do - it cannot delete a directory it has no
+                // record of writing, and a moved folder looks exactly like a new one.
+                string movedRoot = string.Empty;
+                foreach (string[] entry in records.Of("MOVEDROOT"))
+                {
+                    if (entry.Length > 1 && entry[1].Length > 0) movedRoot = entry[1];
+                }
+
+                statusMessage = movedRoot.Length > 0
+                    ? string.Format(
+                        "Receipt for {0} cleared, but {1} is no longer there - it was moved or deleted " +
+                        "outside this window, so nothing was removed. Remove that copy yourself.",
+                        selectedId, movedRoot)
+                    : string.Format("{0} file(s) removed for {1}.", removed, selectedId);
+
                 detailRecords = null;
                 planRecords = null;
                 // Queued for the same reason as install.
