@@ -154,6 +154,18 @@ test('an undeclared documentation URI is an empty field, not a missing record', 
   assert.deepEqual(details(records, 'documentation'), ['']);
 });
 
+test('release notes are a link target, reported like documentation', () => {
+  // A registry cannot render a changelog: the maintainer's site can, and correct it after
+  // publication. So the front end is given an address, not the text.
+  const records = capture(() => toolDetail(
+    { ...DOC, releaseNotes: 'https://example.invalid/releases/' },
+    model(),
+  ));
+  assert.deepEqual(details(records, 'releaseNotes'), ['https://example.invalid/releases/']);
+  // Undeclared is an empty field for the same reason as documentation.
+  assert.deepEqual(details(capture(() => toolDetail(DOC, model())), 'releaseNotes'), ['']);
+});
+
 test('a dependency carries its constraint, optionality and reason', () => {
   const records = capture(() => toolDetail(DOC, model()));
   const dependencies = records.filter((r) => r.type === 'DEPENDENCY').map((r) => r.fields);

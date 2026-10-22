@@ -306,7 +306,7 @@ namespace UnityEngine
         public EventType GetTypeForControl(int controlID) => type;
     }
 
-    public enum EventType { MouseDown, MouseUp, MouseDrag, KeyDown, KeyUp, Repaint, Layout, Used }
+    public enum EventType { MouseDown, MouseUp, MouseDrag, KeyDown, KeyUp, Repaint, Layout, Used, ContextClick }
 
     /// <summary>Why a control wants an ID, which decides how it may be reused.</summary>
     public enum FocusType { Native, Keyboard, Passive }
@@ -346,6 +346,9 @@ namespace UnityEngine
 
         public static Rect GetRect(GUIContent content, GUIStyle style, params GUILayoutOption[] options) =>
             new Rect(0f, 0f, 200f, 20f);
+
+        /// <summary>The rect of the control drawn last, used to attach a cursor to it.</summary>
+        public static Rect GetLastRect() => new Rect(0f, 0f, 200f, 20f);
     }
 
     public static class EditorStyles
@@ -366,6 +369,8 @@ namespace UnityEngine
         public static GUIStyle whiteLabel = new GUIStyle();
         public static GUIStyle largeLabel = new GUIStyle();
         public static GUIStyle helpBox = new GUIStyle();
+        /// <summary>Hyperlink text with no button chrome; the style LinkButton draws with.</summary>
+        public static GUIStyle linkLabel = new GUIStyle();
         /// <summary>Small square button, used for the narrow collapse controls.</summary>
         public static GUIStyle miniButton = new GUIStyle();
         public static GUIStyle miniButtonLeft = new GUIStyle();
@@ -563,6 +568,34 @@ namespace UnityEditor
             new GUIContent(text, tooltip);
         public static GUIContent TrTextContent(
             string text, string tooltip, Texture2D icon, string fallbackText) => new GUIContent(text, tooltip);
+
+        /// <summary>
+        /// Show a cursor while the pointer is over a rect.
+        /// </summary>
+        /// <remarks>
+        /// Called every event by every real call site; nothing to do here beyond accepting the
+        /// call, but the enum has to exist or the call cannot be written at all.
+        /// </remarks>
+        public static void AddCursorRect(Rect position, MouseCursor cursor) { }
+    }
+
+    /// <summary>The pointer shape Unity asks the OS for.</summary>
+    public enum MouseCursor
+    {
+        Arrow, Text, ResizeVertical, ResizeHorizontal, Link, SlideArrow, MoveArrow,
+        ResizeUpRight, ResizeUpLeft, Fingers, ScaleArrow, Plus, Minus, ArrowPlus, ArrowMinus
+    }
+
+    /// <summary>A popup menu, used for the per-row version menu.</summary>
+    public class GenericMenu
+    {
+        public delegate void MenuFunction();
+
+        public void AddItem(GUIContent content, bool on, MenuFunction func) { }
+        public void AddItem(GUIContent content, bool on, MenuFunction func, object userData) { }
+        public void AddDisabledItem(GUIContent content) { }
+        public void AddSeparator(string path) { }
+        public void ShowAsContext() { }
     }
 
     /// <summary>Global IMGUI control state, used to drop focus and to own a click.</summary>

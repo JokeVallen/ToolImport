@@ -146,6 +146,11 @@ export function toolDetail(manifest, model) {
   // as an empty field when undeclared, so a reader cannot confuse "no documentation
   // declared" with "this backend does not report documentation at all".
   record('DETAIL', ['documentation', manifest.documentation ?? '']);
+  // Where the maintainer publishes release notes, which is where they belong: a registry
+  // that copies them into its own UI ends up showing a stale copy, and a front end cannot
+  // render a changelog it has no data for. Emitted for the same reason as documentation -
+  // so "no link declared" and "this backend reports no link" stay distinguishable.
+  record('DETAIL', ['releaseNotes', manifest.releaseNotes ?? '']);
   record('DETAIL', ['deprecated', manifest.deprecated === true ? 'true' : 'false']);
 
   // Release metadata, which lives on the VERSION ENTRY rather than the top-level document,

@@ -52,6 +52,7 @@ namespace CsharpCheck
             ConstraintsArePutIntoWords();
             ToolTypeIsNotAVersion();
             VersionsCarryTheLatestMarker();
+            LicenceLinksOnlyForIdentifiers();
             ListValuesMatchExactly();
             DependenciesAreMatchedByIdAlone();
             StaleRegistryOverridesAreIgnored();
@@ -286,9 +287,10 @@ namespace CsharpCheck
         /// <summary>
         /// VERSIONS is the only place that says which version is latest.
         ///
-        /// It carries one record per published version, tagged explicitly. The details pane
-        /// must read it rather than trying to derive "latest" from the summary, which holds
-        /// a single version and cannot express the distinction at all.
+        /// It carries one record per published version, tagged explicitly. Both the inline
+        /// list under a selected row and the right-click menu are built from this parser, so
+        /// a mistake here would show the wrong releases in two places at once - or, worse,
+        /// mark two of them as latest.
         /// </summary>
         private static void VersionsCarryTheLatestMarker()
         {
@@ -301,14 +303,9 @@ namespace CsharpCheck
                 "TOOL\tlibs-sharp-json\t3.0.0\ttool-library\tunity\t\t\tSharpJson\t\t\tpayloads/libs-sharp-json/tool.yaml\n" +
                 "VERSIONS\tlibs-sharp-json\t3.0.0\tlatest\n");
 
-            var mine = new List<string>();
-            string latest = string.Empty;
-            foreach (string[] fields in records.Of("VERSIONS"))
-            {
-                if (fields.Length < 2 || fields[0] != "editor-tool-selection-history") continue;
-                mine.Add(fields[1]);
-                if (fields.Length > 2 && fields[2] == "latest") latest = fields[1];
-            }
+            string latest;
+            List<string> mine = ImportToolWindow.VersionsFrom(
+                records.Of("VERSIONS"), "editor-tool-selection-history", out latest);
 
             Check("both published versions are seen", mine.Count == 2, mine.Count.ToString());
             Check("the older version is included", mine.Contains("0.9.0"), string.Join(",", mine.ToArray()));
@@ -319,6 +316,44 @@ namespace CsharpCheck
             // per row even for the same tool.
             Check("another tool's versions are excluded", !mine.Contains("3.0.0"),
                 string.Join(",", mine.ToArray()));
+
+            // A tool with no versions reported must produce an empty list rather than throw:
+            // `show` can finish before any `list` has, and OnGUI would then die every frame.
+            string noLatest;
+            Check("an unknown tool has no versions",
+                ImportToolWindow.VersionsFrom(records.Of("VERSIONS"), "nope", out noLatest).Count == 0);
+            Check("an unknown tool has no latest", noLatest == string.Empty, noLatest);
+            Check("a missing stream has no versions",
+                ImportToolWindow.VersionsFrom(null, "editor-tool-selection-history", out noLatest).Count == 0);
+        }
+
+        /// <summary>
+        /// The licence link is derived from the SPDX id, and only when the value is shaped
+        /// like one.
+        ///
+        /// `license` is an identifier, not a URL: the schema documents it as an SPDX id and
+        /// constrains it to `[A-Za-z0-9.-+]`, so spdx.org is where the value already points and
+        /// no new metadata is needed to make it clickable. The shape check is for data that
+        /// bypassed the schema ("see LICENSE"), where percent-encoding into a spdx.org URL
+        /// would produce a dead link that looks authoritative.
+        /// </summary>
+        private static void LicenceLinksOnlyForIdentifiers()
+        {
+            Check("MIT links to its SPDX page",
+                ImportToolWindow.LicenseUrl("MIT") == "https://spdx.org/licenses/MIT.html",
+                ImportToolWindow.LicenseUrl("MIT"));
+            Check("a dotted id keeps its punctuation",
+                ImportToolWindow.LicenseUrl("Apache-2.0") == "https://spdx.org/licenses/Apache-2.0.html",
+                ImportToolWindow.LicenseUrl("Apache-2.0"));
+            Check("a plus-suffixed id is an id",
+                ImportToolWindow.LicenseUrl("GPL-2.0+").EndsWith("/GPL-2.0+.html", StringComparison.Ordinal),
+                ImportToolWindow.LicenseUrl("GPL-2.0+"));
+            Check("spaces are not linked", ImportToolWindow.LicenseUrl("see LICENSE") == string.Empty,
+                ImportToolWindow.LicenseUrl("see LICENSE"));
+            Check("a path is not linked", ImportToolWindow.LicenseUrl("../LICENSE") == string.Empty,
+                ImportToolWindow.LicenseUrl("../LICENSE"));
+            Check("an empty licence is not linked", ImportToolWindow.LicenseUrl("") == string.Empty);
+            Check("a null licence is not linked", ImportToolWindow.LicenseUrl(null) == string.Empty);
         }
 
         /// <summary>
