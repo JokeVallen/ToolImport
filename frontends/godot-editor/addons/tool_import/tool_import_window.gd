@@ -50,11 +50,12 @@ var _filter_button: MenuButton
 var _value_button: MenuButton
 var _collapse_button: Button
 var _list_controls: HBoxContainer
+var _list_column: VBoxContainer
+var _split: HSplitContainer
 var _detail_panel: PanelContainer
 var _list: ItemList
 var _meta: RichTextLabel
 var _install_edit: LineEdit
-var _installs_header: Label
 var _status: Label
 var _plan_box: VBoxContainer
 var _plan_scroll: ScrollContainer
@@ -157,7 +158,8 @@ func _build_ui() -> void:
 	_search_edit.text_changed.connect(func(_text: String) -> void: _rebuild_list())
 	toolbar.add_child(_search_edit)
 
-	var split := HSplitContainer.new()
+	_split = HSplitContainer.new()
+	var split := _split
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	# Into `root`, not into the window: everything else is built under root, and a sibling of it
 	# is laid out at the origin with no size of its own - which is how the window ended up showing
@@ -167,15 +169,20 @@ func _build_ui() -> void:
 	# The list column: a filter row, then the list. The filter acts on this list and reads as a
 	# heading over it, which is why it lives here and not in the toolbar - the same arrangement the
 	# Unity window uses.
-	var left := VBoxContainer.new()
-	left.custom_minimum_size = Vector2(200, 0)
-	split.add_child(left)
+	_list_column = VBoxContainer.new()
+	_list_column.custom_minimum_size = Vector2(200, 0)
+	split.add_child(_list_column)
 
 	_list_controls = HBoxContainer.new()
-	left.add_child(_list_controls)
+	_list_column.add_child(_list_controls)
 
+	# A dropdown has to look like one: a flat button on the window background is indistinguishable
+	# from a label, which is how the filter read before. `flat = false` is what gives it the
+	# editor's button frame and the hover state.
 	_filter_button = MenuButton.new()
 	_filter_button.text = FILTER_LABELS[0]
+	_filter_button.flat = false
+	_filter_button.custom_minimum_size = Vector2(0, 26)
 	_filter_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var filter_menu := _filter_button.get_popup()
 	for index in FILTER_LABELS.size():
@@ -187,6 +194,8 @@ func _build_ui() -> void:
 	# and three entries do not need a third of the width. Same gesture as the Unity window's rail.
 	_collapse_button = Button.new()
 	_collapse_button.text = "‹"
+	_collapse_button.flat = false
+	_collapse_button.custom_minimum_size = Vector2(26, 26)
 	_collapse_button.tooltip_text = "Hide the tool list"
 	_collapse_button.pressed.connect(_on_collapse_pressed)
 	_list_controls.add_child(_collapse_button)
@@ -198,13 +207,13 @@ func _build_ui() -> void:
 	_value_button.visible = false
 	_value_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_value_button.get_popup().id_pressed.connect(_on_filter_value_chosen)
-	left.add_child(_value_button)
+	_list_column.add_child(_value_button)
 
 	_list = ItemList.new()
 	_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_list.item_selected.connect(_on_tool_selected)
 	_list.gui_input.connect(_on_list_gui_input)
-	left.add_child(_list)
+	_list_column.add_child(_list)
 
 	var right := VBoxContainer.new()
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -241,12 +250,9 @@ func _build_ui() -> void:
 	_meta.add_theme_stylebox_override("normal", empty_style)
 	details.add_child(_meta)
 
-	# The Installs block belongs INSIDE the same dark panel as the rest of the details, not in a
-	# bare strip under it: it is part of the tool's description of itself, and a separate
-	# background made it read as a different kind of thing.
-	_installs_header = Label.new()
-	_installs_header.text = "Installs"
-	details.add_child(_installs_header)
+	# The Installs / Plan heading is drawn by the same rich text as the other section headers, so
+	# it is the same weight and colour as "Dependencies". A separate Label could only approximate
+	# it, and the plan lines below still need a widget of their own for horizontal scrolling.
 
 	# Horizontal scrolling only: a planned path is longer than the window, and the vertical axis
 	# belongs to the pane, so this block is as tall as its lines.
@@ -259,14 +265,19 @@ func _build_ui() -> void:
 	_plan_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_plan_scroll.add_child(_plan_box)
 
-	var panel_style: StyleBox = _meta.get_theme_stylebox("normal")
-	if panel_style != null:
-		_detail_panel.add_theme_stylebox_override("panel", panel_style.duplicate())
-	else:
+	# Taken from the editor theme, NOT from _meta: the label's own stylebox was just replaced with
+	# an empty one, so asking it for its background returns "nothing" and the panel ends up
+	# transparent - which is exactly how the black box disappeared.
+	var panel_style: StyleBox = null
+	var editor_theme: Theme = EditorInterface.get_editor_theme()
+	if editor_theme != null:
+		panel_style = editor_theme.get_stylebox("normal", "RichTextLabel")
+	if panel_style == null:
 		var fallback := StyleBoxFlat.new()
-		fallback.bg_color = Color(0.13, 0.13, 0.14)
+		fallback.bg_color = Color(0.1, 0.1, 0.11)
 		fallback.set_content_margin_all(8)
-		_detail_panel.add_theme_stylebox_override("panel", fallback)
+		panel_style = fallback
+	_detail_panel.add_theme_stylebox_override("panel", panel_style)
 
 	var destination_header := Label.new()
 	destination_header.text = "Install Into"
@@ -540,6 +551,7 @@ func _supports_engine(fields: PackedStringArray) -> bool:
 func _rebuild_list() -> void:
 	var needle := _search_edit.text.strip_edges().to_lower()
 	var keep := _selected_id
+	var kept := false
 
 	_list.clear()
 	for fields in _tools:
@@ -564,9 +576,12 @@ func _rebuild_list() -> void:
 		_list.set_item_metadata(index, id)
 		if id == keep:
 			_list.select(index)
+			kept = true
 
-	# Nothing selected yet: open the first tool, the way the list itself would.
-	if _selected_id == "" and _list.item_count > 0:
+	# A filter that hides the current selection would leave the pane describing a tool the list no
+	# longer shows. Falling back to the first row keeps the two in step, and means changing a
+	# filter never needs a second click before anything is displayed.
+	if _list.item_count > 0 and not kept:
 		_list.select(0)
 		_on_tool_selected(0)
 
@@ -694,10 +709,17 @@ func _on_filter_value_chosen(index: int) -> void:
 
 func _on_collapse_pressed() -> void:
 	_list_collapsed = not _list_collapsed
-	# The filter row stays: it is the heading of the column, and a collapsed list whose filter
-	# also disappeared would leave no way to tell what the list would contain if reopened.
+	# Collapsing means the column gives its width back to the detail pane - otherwise folding it
+	# would only hide the rows and leave the empty space behind, which is not what a collapse is
+	# for. All that stays is the button that brings the list back, in the same corner.
 	_list.visible = not _list_collapsed
-	_value_button.visible = _filter_takes_value() and not _list_collapsed
+	_filter_button.visible = not _list_collapsed
+	_value_button.visible = (not _list_collapsed) and _filter_takes_value()
+	var width := 30 if _list_collapsed else 200
+	_list_column.custom_minimum_size.x = width
+	# The splitter keeps its own divider position: shrinking the column's minimum width alone would
+	# hide the rows and leave the same gap behind, which is not what a collapse is for.
+	_split.split_offset = width - int(_split.size.x / 2)
 	_collapse_button.text = "›" if _list_collapsed else "‹"
 	_collapse_button.tooltip_text = "Show the tool list" if _list_collapsed else "Hide the tool list"
 
@@ -811,10 +833,8 @@ func _render_empty(message: String) -> void:
 	if _meta != null:
 		_meta.clear()
 		_meta.append_text(message)
-	# A header with nothing under it is worse than no header: this is the state before a tool is
-	# picked, and "Installs" with an empty block reads as a tool that installs nothing.
-	if _installs_header != null:
-		_installs_header.visible = false
+	# No heading and no lines: this is the state before a tool is picked, and "Installs" over an
+	# empty block reads as a tool that installs nothing.
 	if _plan_box != null:
 		for child in _plan_box.get_children():
 			_plan_box.remove_child(child)
@@ -876,10 +896,12 @@ func _render_detail() -> void:
 	# The default destination is a HINT inside the field, not a sentence above it: it describes
 	# what an empty field will do, and the field is exactly where that question is asked.
 	_install_edit.placeholder_text = _defaults_text()
-	_installs_header.visible = true
+	# The heading is part of the rich text, so it has the same weight and colour as the headers
+	# above it. Its text says which of the two answers is below.
+	_meta.append_text("\n\n[b]%s[/b]" % ("Plan" if not _plan.is_empty() else "Installs"))
 	# The Installs block is the plan when there is one and the declared target otherwise; the two
 	# are never shown together, because they answer the same question.
-	_render_plan()
+	_fill_installs()
 
 	var installed: String = str(_installed_versions.get(_selected_id, ""))
 	var latest := _latest_of(_selected_id)
@@ -1054,7 +1076,7 @@ func _on_destination_typed(text: String) -> void:
 		_directories[_selected_id] = trimmed
 	# A plan describes one destination; keeping it beside a new one is a disagreement.
 	_plan = []
-	_render_plan()
+	_render_detail()
 
 
 func _on_default_pressed() -> void:
@@ -1132,7 +1154,7 @@ func _on_verify_pressed() -> void:
 
 func _on_plan_ready(records: Array) -> void:
 	_plan = records
-	_render_plan()
+	_render_detail()
 
 	if Backend.problems(records).size() > 0:
 		_status.text = "Plan rejected. See the plan block."
@@ -1146,17 +1168,17 @@ func _on_plan_ready(records: Array) -> void:
 	)
 
 
-func _render_plan() -> void:
+## Fill the block under the Installs / Plan heading.
+##
+## The heading itself is written by the rich text above, so the two always agree, and this only
+## decides which answer goes underneath: the verified plan when there is one, the declaration from
+## the manifest otherwise.
+func _fill_installs() -> void:
 	# Removed now rather than queued: a queue_free'd node is still drawn for the rest of the
 	# frame, which would show the previous plan's lines under the new one.
 	for child in _plan_box.get_children():
 		_plan_box.remove_child(child)
 		child.queue_free()
-
-	# The heading names what is actually there. "Installs" before a plan and "Plan" once one has
-	# been verified, because after verifying the block IS the plan, and a heading that still said
-	# "Installs" left the user looking for the plan they had just produced.
-	_installs_header.text = "Installs" if _plan.is_empty() else "Plan"
 
 	# No plan yet, so the block answers the same question from the declaration instead. The two
 	# are mutually exclusive on purpose: a plan and a target both say what will land where, and
@@ -1238,9 +1260,9 @@ func _install_now() -> void:
 
 func _on_install_ready(records: Array) -> void:
 	var installed := Backend.result(records, "installed")
-	_status.text = "Installed %s tool(s)." % (installed if installed != "" else "?")
 	_plan = []
-	_render_plan()
+	_render_detail()
+	_status.text = "Installed %s tool(s)." % (installed if installed != "" else "?")
 	_refresh_installed()
 
 
@@ -1275,14 +1297,16 @@ func _on_uninstall_ready(records: Array) -> void:
 		if fields.size() > 1 and fields[1] != "":
 			moved = fields[1]
 
+	_detail = []
+	_plan = []
+	# Re-rendered BEFORE the message is set: the render resets the status line to "Ready.", and
+	# setting it first meant every uninstall finished with a status that said nothing happened.
+	_render_detail()
+
 	if moved != "":
 		_status.text = "Receipt cleared, but %s is no longer there - it was moved or deleted outside this window." % moved
 	else:
 		_status.text = "Removed %s file(s)." % (removed if removed != "" else "?")
-
-	_detail = []
-	_plan = []
-	_render_plan()
 	_refresh_installed()
 
 
