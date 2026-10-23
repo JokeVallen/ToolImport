@@ -40,6 +40,16 @@ const FILTER_LABELS := [
 	"Tag is", "Provides", "Injects", "Depends on",
 ]
 
+## Width of the strip the collapsed list leaves behind, just wide enough for the expand button.
+const COLLAPSED_RAIL_WIDTH := 30
+
+## Button colours. The editor's own hover tint is subtle enough that on this window's background a
+## hovered button looked identical to an unhovered one, so each state gets an explicit colour.
+const BUTTON_NORMAL := Color(0.24, 0.25, 0.27)
+const BUTTON_HOVER := Color(0.33, 0.35, 0.38)
+const BUTTON_PRESSED := Color(0.18, 0.19, 0.21)
+const BUTTON_BORDER := Color(0.38, 0.40, 0.43)
+
 var _backend: Backend = null
 var _project_root := ""
 var _settings_window: Window = null
@@ -67,6 +77,7 @@ var _filter: Filter = Filter.ALL
 var _filter_value := ""
 var _filter_options := PackedStringArray()
 var _list_collapsed := false
+var _list_width := 200
 
 var _tools: Array[PackedStringArray] = []
 var _versions := {}
@@ -76,6 +87,9 @@ var _directories := {}
 
 var _selected_id := ""
 var _selected_version := ""
+# Which tool the pane is CURRENTLY describing. Empty when it holds a message instead, which is how
+# a filter change can tell that the selection survived but the pane did not.
+var _shown_id := ""
 var _detail: Array = []
 var _plan: Array = []
 var _first_open := true
@@ -143,11 +157,13 @@ func _build_ui() -> void:
 	var refresh_button := Button.new()
 	refresh_button.text = "Refresh"
 	refresh_button.pressed.connect(_on_refresh_pressed)
+	_style_button(refresh_button)
 	toolbar.add_child(refresh_button)
 
 	var settings_button := Button.new()
 	settings_button.text = "Settings"
 	settings_button.pressed.connect(_on_settings_pressed)
+	_style_button(settings_button)
 	toolbar.add_child(settings_button)
 
 	toolbar.add_child(VSeparator.new())
@@ -177,17 +193,16 @@ func _build_ui() -> void:
 	_list_column.add_child(_list_controls)
 
 	# A dropdown has to look like one: a flat button on the window background is indistinguishable
-	# from a label, which is how the filter read before. `flat = false` is what gives it the
-	# editor's button frame and the hover state.
+	# from a label, which is how the filter read before.
 	_filter_button = MenuButton.new()
 	_filter_button.text = FILTER_LABELS[0]
 	_filter_button.flat = false
-	_filter_button.custom_minimum_size = Vector2(0, 26)
 	_filter_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var filter_menu := _filter_button.get_popup()
 	for index in FILTER_LABELS.size():
 		filter_menu.add_item(FILTER_LABELS[index], index)
 	filter_menu.id_pressed.connect(_on_filter_chosen)
+	_style_button(_filter_button)
 	_list_controls.add_child(_filter_button)
 
 	# The list can be folded away, because the detail pane is the part being read most of the time
@@ -195,18 +210,23 @@ func _build_ui() -> void:
 	_collapse_button = Button.new()
 	_collapse_button.text = "‹"
 	_collapse_button.flat = false
-	_collapse_button.custom_minimum_size = Vector2(26, 26)
 	_collapse_button.tooltip_text = "Hide the tool list"
 	_collapse_button.pressed.connect(_on_collapse_pressed)
+	_style_button(_collapse_button, 26)
 	_list_controls.add_child(_collapse_button)
 
 	# A second row appears only for the modes that take a value, and it is filled from the listing
 	# itself - so it can only offer values that exist. A free-text box would let a typo produce an
 	# empty list, which looks exactly like an empty registry.
+	#
+	# It is a dropdown for the same reason the mode is: without a frame and a hover state it read
+	# as a line of text, and the second-level filter was effectively invisible.
 	_value_button = MenuButton.new()
 	_value_button.visible = false
+	_value_button.flat = false
 	_value_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_value_button.get_popup().id_pressed.connect(_on_filter_value_chosen)
+	_style_button(_value_button)
 	_list_column.add_child(_value_button)
 
 	_list = ItemList.new()
@@ -298,6 +318,8 @@ func _build_ui() -> void:
 	var default_button := Button.new()
 	default_button.text = "Default"
 	default_button.pressed.connect(_on_default_pressed)
+	_style_button(browse_button)
+	_style_button(default_button)
 	destination_row.add_child(_install_edit)
 	destination_row.add_child(browse_button)
 	destination_row.add_child(default_button)
@@ -313,6 +335,9 @@ func _build_ui() -> void:
 	_uninstall_button = Button.new()
 	_uninstall_button.text = "Uninstall"
 	_uninstall_button.pressed.connect(_on_uninstall_pressed)
+	_style_button(_verify_button)
+	_style_button(_install_button)
+	_style_button(_uninstall_button)
 	actions.add_child(_verify_button)
 	actions.add_child(_install_button)
 	actions.add_child(_uninstall_button)
@@ -335,6 +360,36 @@ func _label(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
 	return label
+
+
+## Give a button a frame and a hover state that can be seen against this window's background.
+##
+## WHY NOT THE THEME'S OWN BUTTONS
+## ------------------------------
+## The editor theme's button styles are built for panels, not for a floating window, and on this
+## background the hover tint was close enough to the normal one that a hovered control looked
+## exactly like an idle one. Every state is therefore drawn explicitly: the point of a control is
+## that a user can tell it is one before clicking it.
+func _style_button(button: Button, min_width: int = 0) -> void:
+	button.flat = false
+	button.custom_minimum_size = Vector2(min_width, 26)
+	button.add_theme_stylebox_override("normal", _button_box(BUTTON_NORMAL))
+	button.add_theme_stylebox_override("hover", _button_box(BUTTON_HOVER))
+	button.add_theme_stylebox_override("pressed", _button_box(BUTTON_PRESSED))
+	button.add_theme_stylebox_override("focus", _button_box(BUTTON_HOVER))
+
+
+func _button_box(colour: Color) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = colour
+	box.border_color = BUTTON_BORDER
+	box.set_border_width_all(1)
+	box.set_corner_radius_all(3)
+	box.content_margin_left = 8
+	box.content_margin_right = 8
+	box.content_margin_top = 5
+	box.content_margin_bottom = 5
+	return box
 
 
 ## Put the window in the middle of the screen, at a size that fits it.
@@ -470,6 +525,7 @@ func _on_backend_finished(result: Dictionary) -> void:
 		if message == "":
 			message = "The backend exited with code %d and said nothing." % exit_code
 		_status.text = message
+		_flush_queued()
 		return
 
 	if noise.size() > 0:
@@ -478,22 +534,43 @@ func _on_backend_finished(result: Dictionary) -> void:
 	if handler.is_valid():
 		handler.call(records)
 
+	_flush_queued()
+
 
 var _pending := Callable()
+var _queued_arguments := PackedStringArray()
+var _queued_handler := Callable()
 
 
 ## Send one command and name the handler that reads its answer.
 ##
-## One call at a time, and a call made while busy is REFUSED rather than queued: the pane shows
-## one answer, and a queued request that runs later would paint a stale release over the one the
-## user is looking at. Refusing keeps the state obvious - the status line says so.
+## One call at a time. A call made while busy REPLACES the one waiting, and the survivor runs as
+## soon as the current answer arrives.
+##
+## This used to refuse instead, which was wrong in the case that matters most: switching a filter
+## fires a "show" for the newly selected tool while the "status" call from the refresh is still
+## running, so the request was dropped, nothing repainted the pane, and the user was left looking
+## at the previous tool - or at "No tool matches the current filter" - beside a list that had
+## already changed. Keeping only the LATEST queued request means no intermediary state is ever
+## painted over a newer one.
 func _call(arguments: PackedStringArray, handler: Callable) -> void:
 	if _backend.is_busy():
-		_status.text = "Still working; try again when the current call finishes."
+		_queued_arguments = arguments
+		_queued_handler = handler
 		return
 	_pending = handler
 	if not _run(arguments):
 		_pending = Callable()
+
+
+func _flush_queued() -> void:
+	if not _queued_handler.is_valid():
+		return
+	var arguments := _queued_arguments
+	var handler := _queued_handler
+	_queued_arguments = PackedStringArray()
+	_queued_handler = Callable()
+	_call(arguments, handler)
 
 
 # ---------------------------------------------------------------------------
@@ -581,9 +658,20 @@ func _rebuild_list() -> void:
 	# A filter that hides the current selection would leave the pane describing a tool the list no
 	# longer shows. Falling back to the first row keeps the two in step, and means changing a
 	# filter never needs a second click before anything is displayed.
+	#
+	# The second branch covers the case that made this look broken: the selection SURVIVES a filter
+	# change, but the pane was overwritten by the empty-state message while the list happened to be
+	# empty. The row is highlighted and the description says "No tool matches" - so the pane is
+	# re-rendered whenever it is not showing the tool the list has selected.
 	if _list.item_count > 0 and not kept:
 		_list.select(0)
 		_on_tool_selected(0)
+	elif _list.item_count > 0 and kept and _shown_id != keep:
+		for index in range(_list.item_count):
+			if str(_list.get_item_metadata(index)) == keep:
+				_list.select(index)
+				_on_tool_selected(index)
+				break
 
 	# An empty list needs a reason. "Nothing happened" is indistinguishable from a defect, and
 	# the causes here are different: nothing loaded, a filter that matches nothing, or no tool
@@ -688,8 +776,8 @@ func _refresh_filter_values() -> void:
 		_value_button.visible = false
 		return
 
-	if _filter_value == "":
-		_filter_value = _filter_options[0]
+	if _filter_value == "" or not _filter_options.has(_filter_value):
+		_filter_value = _first_useful_value()
 	_value_button.text = _filter_value
 	_value_button.visible = true
 
@@ -697,6 +785,24 @@ func _refresh_filter_values() -> void:
 	menu.clear()
 	for index in _filter_options.size():
 		menu.add_item(_filter_options[index], index)
+
+
+## The first value that actually leaves something in the list.
+##
+## The options are sorted, so the first alphabetically is often a value no tool in this registry
+## has - picking "Tag is" then landed on an empty list and a message, which reads as the filter
+## being broken rather than as that tag being unused. Depends-on is the worst case: most tools
+## have no dependants at all.
+func _first_useful_value() -> String:
+	var saved := _filter_value
+	for option in _filter_options:
+		_filter_value = option
+		for fields in _tools:
+			if _supports_engine(fields) and _passes_filter(fields):
+				_filter_value = saved
+				return option
+	_filter_value = saved
+	return _filter_options[0]
 
 
 func _on_filter_value_chosen(index: int) -> void:
@@ -715,13 +821,33 @@ func _on_collapse_pressed() -> void:
 	_list.visible = not _list_collapsed
 	_filter_button.visible = not _list_collapsed
 	_value_button.visible = (not _list_collapsed) and _filter_takes_value()
-	var width := 30 if _list_collapsed else 200
-	_list_column.custom_minimum_size.x = width
-	# The splitter keeps its own divider position: shrinking the column's minimum width alone would
-	# hide the rows and leave the same gap behind, which is not what a collapse is for.
-	_split.split_offset = width - int(_split.size.x / 2)
+
+	# The width the user dragged to is remembered, not assumed: restoring the default width after
+	# an expand threw away a deliberate resize, which made the collapse button feel like it reset
+	# the window.
+	if _list_collapsed:
+		_list_width = _current_list_width()
+		_set_list_width(COLLAPSED_RAIL_WIDTH)
+	else:
+		_set_list_width(_list_width)
+
 	_collapse_button.text = "›" if _list_collapsed else "‹"
 	_collapse_button.tooltip_text = "Show the tool list" if _list_collapsed else "Hide the tool list"
+
+
+## How wide the list column currently is, dragged or not.
+func _current_list_width() -> int:
+	return maxi(COLLAPSED_RAIL_WIDTH, int(_split.size.x / 2) + _split.split_offset)
+
+
+## Set the list column's width, by moving the splitter rather than only its minimum size.
+##
+## HSplitContainer keeps its own divider position, so shrinking the column's minimum width alone
+## hides the rows and leaves the gap behind.
+func _set_list_width(width: int) -> void:
+	width = maxi(width, COLLAPSED_RAIL_WIDTH)
+	_list_column.custom_minimum_size.x = COLLAPSED_RAIL_WIDTH if width <= COLLAPSED_RAIL_WIDTH else 120
+	_split.split_offset = width - int(_split.size.x / 2)
 
 
 func _on_tool_selected(index: int) -> void:
@@ -822,6 +948,11 @@ func _pin_version(id: String, version: String) -> void:
 # ---------------------------------------------------------------------------
 
 func _on_detail_ready(records: Array) -> void:
+	# A late answer for a tool the filter has since hidden must not repaint the pane. The list is
+	# the truth about what can be picked, and painting a tool that is no longer in it is exactly
+	# how the pane and the list ended up disagreeing.
+	if _selected_id == "" or not _list_contains(_selected_id):
+		return
 	_detail = records
 	_plan = []
 	# _render_detail draws the Installs block too, from the target when there is no plan.
@@ -829,7 +960,16 @@ func _on_detail_ready(records: Array) -> void:
 	_set_busy(false)
 
 
+## Is this tool currently one of the rows in the list?
+func _list_contains(id: String) -> bool:
+	for index in range(_list.item_count):
+		if str(_list.get_item_metadata(index)) == id:
+			return true
+	return false
+
+
 func _render_empty(message: String) -> void:
+	_shown_id = ""
 	if _meta != null:
 		_meta.clear()
 		_meta.append_text(message)
@@ -846,6 +986,7 @@ func _render_detail() -> void:
 	if _detail.is_empty():
 		_render_empty("Select a tool to review it before installing.")
 		return
+	_shown_id = _selected_id
 
 	var version := Backend.detail(_detail, "version")
 	var display := Backend.detail(_detail, "displayName")
@@ -1008,10 +1149,12 @@ func _render_links() -> void:
 		if entry[1] == "":
 			continue
 		# Blue, bold and italic: a link has to look like one at a glance, and the rest of the
-		# pane is neither coloured nor bold, so the difference is unambiguous.
-		parts.append("[color=#4b9bff][b][i][url=%s]%s[/url][/i][/b][/color]" % [
-			entry[1], _escape(entry[0])
-		])
+		# pane is neither coloured nor bold, so the difference is unambiguous. The hint is the URL
+		# itself, so hovering says where the click goes before it is taken.
+		parts.append(
+			"[hint=%s][color=#4b9bff][b][i][url=%s]%s[/url][/i][/b][/color][/hint]"
+			% [entry[1], entry[1], _escape(entry[0])]
+		)
 	if parts.is_empty():
 		return
 	_meta.append_text("\n" + "   •   ".join(parts))
