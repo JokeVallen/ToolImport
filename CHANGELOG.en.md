@@ -9,6 +9,28 @@ of the tool are its own; the metadata format it reads is versioned separately by
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
+## [1.0.2] — 2026-10-23
+
+### Fixed
+
+- **Every command came back empty.** `OS.execute` returns one array element per line on some
+  platforms and the entire output as a single element on others; on Windows it was the latter, so
+  `list --records` arrived as one "record" with 91 fields and no `TOOL` among them. The parser now
+  splits inside each element too, which is correct for both shapes and costs nothing when the
+  chunks are already single lines.
+- **A verified plan was reported as not verified.** The `ok` flag lives in the `PLAN` record
+  (`PLAN tools 1 bytes 1047 ok true dryRun false`), not in `RESULT`, and only `RESULT` was read.
+- **Half of the pane was translated and half was not.** Godot 4.4+ translates a Control's text
+  through the editor's own catalogue: `Node` became 节点 and `Install` became 安装 while `Registry`
+  stayed English. Translation is now off for these controls (and the call is guarded, so older 4.x
+  - which does not translate them - is unaffected).
+
+### Changed
+
+- **The three path fields fill the pane and each has a picker.** Typing a Windows path by hand was
+  the step a first run got wrong, and the fields were too narrow to read what had been typed.
+- **An empty tool list says why**: no paths yet, or no tool in this registry that supports Godot.
+
 ## [1.0.1] — 2026-10-23
 
 ### Fixed

@@ -76,21 +76,27 @@ static func parse(lines: Array) -> Dictionary:
 	var noise: PackedStringArray = PackedStringArray()
 
 	for raw in lines:
-		var line := str(raw)
-		while line.ends_with("\n") or line.ends_with("\r"):
-			line = line.substr(0, line.length() - 1)
-		if line.is_empty():
-			continue
+		# Split INSIDE each element as well. `OS.execute` hands back one element per line on
+		# some platforms and the entire stream as a single element on others - on Windows it
+		# was the latter, which turned a whole `list --records` run into one "record" with 91
+		# fields. Splitting here rather than trusting the chunking is what makes both shapes
+		# parse the same, and it costs nothing when the chunks are already single lines.
+		for piece in str(raw).split("\n"):
+			var line := piece
+			while line.ends_with("\r"):
+				line = line.substr(0, line.length() - 1)
+			if line.strip_edges().is_empty():
+				continue
 
-		var parts := line.split("\t", true)
-		if parts.is_empty() or not RECORD_TYPES.has(parts[0]):
-			noise.append(line)
-			continue
+			var parts := line.split("\t", true)
+			if parts.is_empty() or not RECORD_TYPES.has(parts[0]):
+				noise.append(line)
+				continue
 
-		var fields := PackedStringArray()
-		for index in range(1, parts.size()):
-			fields.append(unescape(parts[index]))
-		records.append({"type": parts[0], "fields": fields})
+			var fields := PackedStringArray()
+			for index in range(1, parts.size()):
+				fields.append(unescape(parts[index]))
+			records.append({"type": parts[0], "fields": fields})
 
 	return {"records": records, "noise": noise}
 
@@ -144,10 +150,15 @@ static func detail(records: Array, key: String) -> String:
 	return ""
 
 
-## Value of a `RESULT <key> <value> ...` pair, or an empty string.
+## Value of one key from a key/value record, or an empty string.
+##
+## `RESULT` and `PLAN` share the layout (`PLAN tools 1 bytes 1047 ok true dryRun false`), so
+## both are read here. Reading only RESULT made the plan block report "NOT verified" for a plan
+## that verified fine - the flag was in PLAN all along.
 static func result(records: Array, key: String) -> String:
 	for record in records:
-		if record["type"] != "RESULT":
+		var type: String = record["type"]
+		if type != "RESULT" and type != "PLAN":
 			continue
 		var fields: PackedStringArray = record["fields"]
 		for index in range(0, fields.size() - 1, 2):

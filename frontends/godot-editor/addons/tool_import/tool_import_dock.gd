@@ -79,14 +79,19 @@ func _build_ui() -> void:
 	_node_edit = LineEdit.new()
 	_node_edit.placeholder_text = "node"
 
+	# The paths are the one thing a first run cannot guess, so each field gets a picker. Typing
+	# a Windows path with a backslash is exactly the step where a first run goes wrong.
 	var config := GridContainer.new()
 	config.columns = 2
+	config.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	config.add_child(_label("Registry"))
-	config.add_child(_registry_edit)
+	config.add_child(_path_row(_registry_edit, FileDialog.FILE_MODE_OPEN_DIR, PackedStringArray()))
 	config.add_child(_label("CLI"))
-	config.add_child(_cli_edit)
+	config.add_child(_path_row(
+		_cli_edit, FileDialog.FILE_MODE_OPEN_FILE, PackedStringArray(["*.js ; utool.js"])))
 	config.add_child(_label("Node"))
-	config.add_child(_node_edit)
+	config.add_child(_path_row(
+		_node_edit, FileDialog.FILE_MODE_OPEN_FILE, PackedStringArray(["*.exe ; node.exe"])))
 	add_child(config)
 
 	var toolbar := HBoxContainer.new()
@@ -190,13 +195,75 @@ func _build_ui() -> void:
 	add_child(_status)
 
 	_set_busy(true)
-	_render_empty("Set the registry and CLI paths, then Refresh.")
+	_render_empty("Pick the registry and CLI paths above, then press Refresh.")
+
+	# Godot 4.4+ translates a Control's text through the editor's own catalogue, which turned
+	# "Node" into 节点 and "Install" into 安装 while "Registry" stayed English - a half-translated
+	# pane reads as a broken one. Older 4.x does not translate these strings at all, so the guard
+	# is a no-op there rather than a broken property name.
+	_disable_auto_translation(self)
 
 
 func _label(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
 	return label
+
+
+## A path field and its picker, side by side.
+func _path_row(edit: LineEdit, mode: int, filters: PackedStringArray) -> HBoxContainer:
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var button := Button.new()
+	button.text = "..."
+	button.tooltip_text = "Choose a folder" if mode == FileDialog.FILE_MODE_OPEN_DIR else "Choose a file"
+	button.pressed.connect(func() -> void: _pick_path(edit, mode, filters))
+
+	row.add_child(edit)
+	row.add_child(button)
+	return row
+
+
+func _pick_path(edit: LineEdit, mode: int, filters: PackedStringArray) -> void:
+	var dialog := FileDialog.new()
+	dialog.file_mode = mode
+	dialog.access = FileDialog.ACCESS_FILESYSTEM
+	dialog.filters = filters
+
+	var current := edit.text.strip_edges()
+	if current == "":
+		dialog.current_dir = _project_root
+	elif mode == FileDialog.FILE_MODE_OPEN_FILE:
+		dialog.current_dir = current.get_base_dir()
+	else:
+		dialog.current_dir = current
+
+	dialog.file_selected.connect(func(file: String) -> void:
+		dialog.queue_free()
+		edit.text = file
+		_persist_settings()
+		_on_refresh_pressed()
+	)
+	dialog.dir_selected.connect(func(directory: String) -> void:
+		dialog.queue_free()
+		edit.text = directory
+		_persist_settings()
+		_on_refresh_pressed()
+	)
+	dialog.canceled.connect(func() -> void: dialog.queue_free())
+	dialog.confirmed.connect(func() -> void: dialog.queue_free())
+	add_child(dialog)
+	_disable_auto_translation(dialog)
+	dialog.popup_centered_ratio(0.5)
+
+
+func _disable_auto_translation(node: Node) -> void:
+	if node.get("auto_translate_mode") != null:
+		node.set("auto_translate_mode", 2)  # AUTO_TRANSLATE_MODE_DISABLED
+	for child in node.get_children():
+		_disable_auto_translation(child)
 
 
 # ---------------------------------------------------------------------------
@@ -265,9 +332,13 @@ func _run(arguments: PackedStringArray) -> bool:
 	_set_busy(true)
 
 	var cli := _cli_edit.text.strip_edges()
-	if cli == "" or not FileAccess.file_exists(cli):
+	if cli == "":
 		_set_busy(false)
-		_render_empty("The CLI path does not point at a file. Set it to apps/cli/bin/utool.js.")
+		_render_empty("Pick the registry and CLI paths above, then press Refresh.")
+		return false
+	if not FileAccess.file_exists(cli):
+		_set_busy(false)
+		_render_empty("No file at that CLI path:\n" + cli)
 		return false
 
 	if not _backend.run(_node_path(), cli, arguments):
@@ -399,6 +470,14 @@ func _rebuild_list() -> void:
 	if _selected_id == "" and _list.item_count > 0:
 		_list.select(0)
 		_on_tool_selected(0)
+
+	# An empty list needs a reason. "Nothing happened" is indistinguishable from a defect, and
+	# the two causes here are completely different: no paths yet, or no tool for this engine.
+	if _list.item_count == 0:
+		if _tools.is_empty():
+			_render_empty("No tools loaded. Set the paths above, then press Refresh.")
+		else:
+			_render_empty("No tool in this registry supports Godot yet.")
 
 
 func _on_tool_selected(index: int) -> void:
