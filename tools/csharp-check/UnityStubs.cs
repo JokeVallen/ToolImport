@@ -419,6 +419,7 @@ namespace UnityEditor
         public static void HelpBox(string message, MessageType type, bool wide) { }
         public static void LabelField(string label, params GUILayoutOption[] options) { }
         public static void LabelField(string label, GUIStyle style, params GUILayoutOption[] options) { }
+        public static void LabelField(GUIContent label, GUIStyle style, params GUILayoutOption[] options) { }
         public static string TextField(string text, GUIStyle style, params GUILayoutOption[] options) => text;
         public static string TextField(string text, params GUILayoutOption[] options) => text;
         public static int Popup(int selected, string[] options, GUIStyle style, params GUILayoutOption[] options2) => selected;

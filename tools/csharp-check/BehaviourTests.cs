@@ -48,6 +48,7 @@ namespace CsharpCheck
             ProblemsAreCollected();
             DeclaredFilesAreFilteredByEngine();
             TheNewestWaitingCommandWins();
+            TheFolderPanelPathIsMadeProjectRelative();
             PlanToolFieldsStayAligned();
             UnescapeHandlesTabAndNewline();
             SearchMatchesTheRightFields();
@@ -180,6 +181,44 @@ namespace CsharpCheck
 
             slot.Post(null);
             Check("posting nothing leaves the slot empty", !slot.HasPending);
+        }
+
+
+        /// <summary>
+        /// The folder panel returns an ABSOLUTE path; the backend only accepts a relative one.
+        /// </summary>
+        /// <remarks>
+        /// The conversion is where a typo becomes an install in the wrong place, so it is done in
+        /// one place and checked here: backslashes from the Windows panel, the project root itself
+        /// (which means "no override", not the empty directory), and a sibling project whose name
+        /// merely starts with this one's - the classic prefix bug that would accept it as inside.
+        /// </remarks>
+        private static void TheFolderPanelPathIsMadeProjectRelative()
+        {
+            const string root = @"C:\Projects\MyGame";
+
+            string relative;
+            Check("a folder inside the project becomes relative",
+                ImportToolWindow.TryProjectRelative(root, @"C:\Projects\MyGame\Assets\Plugins", out relative)
+                && relative == "Assets/Plugins", relative);
+
+            Check("the other separator is accepted",
+                ImportToolWindow.TryProjectRelative(root, "C:/Projects/MyGame/Assets/Vendor", out relative)
+                && relative == "Assets/Vendor", relative);
+
+            Check("case does not matter on Windows",
+                ImportToolWindow.TryProjectRelative(root, @"c:\projects\mygame\Assets", out relative)
+                && relative == "Assets", relative);
+
+            Check("the project root itself means no override",
+                ImportToolWindow.TryProjectRelative(root, @"C:\Projects\MyGame\", out relative)
+                && relative == string.Empty, "[" + relative + "]");
+
+            Check("a sibling project with a shared prefix is outside",
+                !ImportToolWindow.TryProjectRelative(root, @"C:\Projects\MyGameOther\Assets", out relative));
+
+            Check("an unrelated drive is outside",
+                !ImportToolWindow.TryProjectRelative(root, @"D:\Projects\MyGame\Assets", out relative));
         }
 
 

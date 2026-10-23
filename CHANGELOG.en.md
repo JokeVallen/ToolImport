@@ -45,6 +45,38 @@ area rather than by release date. Nothing here has been published.
 - `--into` with an absolute path or a drive letter is refused before anything is downloaded;
   a leading `/` used to be silently stripped into a relative directory.
 
+## The details pane, item by item
+
+### Changed
+
+- **The plan scrolls sideways.** Long destinations were clipped, and the file name is the end of
+  the line, so the part that identifies the file was the part that disappeared. The plan now sits
+  in a horizontal scroll view, with labels that report their own width instead of expanding to the
+  pane.
+- **`Installs N file(s)` is hidden while a plan is on screen.** The two lists are not the same
+  thing - the plan names the final destination of every file, dependencies and any `--into` move
+  included, while the declared list only promises what the artifact contains - but drawing both
+  printed the same names twice, and the shorter list was the misleading one. With no plan the
+  declared list is still the preview.
+- **The four capability sections are tighter.** One multi-line label per section instead of one
+  control per value: a vertical layout separates every control, so five items read as five
+  paragraphs.
+- **`Install Into` is a header on its own line**, with the rules - project-relative, replaces the
+  tool's folder, no absolute path or `..` - as its tooltip; the empty state stays inside the field.
+  The paragraph that used to sit under it cost every tool the vertical space, including the ones
+  nobody was going to move.
+- **A `Browse...` button uses the folder panel.** The panel can only return an existing folder, and
+  its absolute path is converted to the project-relative form the backend requires; a folder outside
+  the project is refused with a reason instead of stored and failing later. A sibling project whose
+  path merely starts with this one's is outside, which is what the separator in the prefix check is
+  for.
+- **Versions moved under a first-level `Versions` submenu** in the row's context menu, leaving the
+  top level for the other per-tool actions.
+- **The first dependency is selected by default**, instead of the pane opening on "select a
+  dependency from the left list".
+- **"N versions published" is gone.** It spent a line on every tool with more than one release to
+  state a count and name a gesture the menu already carries.
+
 ## Choosing a version, and a destination that explains itself
 
 ### Added

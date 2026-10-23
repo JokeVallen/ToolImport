@@ -84,6 +84,15 @@ namespace ToolImport.Editor
         private Vector2 listScroll;
         private Vector2 detailScroll;
 
+        /// <summary>Horizontal scroll of the plan block, which is wider than the pane.</summary>
+        /// <remarks>
+        /// A planned path is a full `Assets/Plugins/SomeTool/Editor/SomeFile.cs`, and a plan lists several of them
+        /// under an artifact line that names a version, an engine and a size. Word-wrapping that
+        /// is unreadable and clipping it hides the part that matters (the file name), so the
+        /// block scrolls sideways instead.
+        /// </remarks>
+        private Vector2 planScroll;
+
         /// <summary>
         /// Currently selected tool id.
         /// </summary>
@@ -1092,7 +1101,7 @@ namespace ToolImport.Editor
             var menu = new GenericMenu();
             if (versions.Count == 0)
             {
-                menu.AddDisabledItem(new GUIContent("No versions listed"));
+                menu.AddDisabledItem(new GUIContent("Versions/No versions listed"));
             }
             else
             {
@@ -1103,9 +1112,12 @@ namespace ToolImport.Editor
                     bool isCurrent = pinned.Length > 0 ? pinned == version : isLatest;
                     bool isInstalled = !string.IsNullOrEmpty(installedVersion) && version == installedVersion;
 
+                    // A submenu, not a flat list. The row menu is where every per-tool action
+                    // belongs, and a release chooser that occupies the top level leaves nowhere
+                    // for the second action to go without pushing the versions around.
                     menu.AddItem(
                         new GUIContent(
-                            version
+                            "Versions/" + version
                             + (isLatest ? "  (latest)" : string.Empty)
                             + (isInstalled ? "  • installed" : string.Empty)),
                         isCurrent,
@@ -1178,9 +1190,6 @@ namespace ToolImport.Editor
             EditorGUILayout.LabelField("Description", EditorStyles.boldLabel);
             CopyableLabel(detailRecords.Detail("description"));
 
-            // Four sections, each a header and its own list. The umbrella "Capabilities" header
-            // was dropped with the chip row: with a header per section it added a fifth heading
-            // that had no content of its own.
             EditorGUILayout.Space();
             DrawListSection("Engines", detailRecords.Detail("engines"));
             DrawListSection("Provides", detailRecords.Detail("provides"));
@@ -1255,12 +1264,27 @@ namespace ToolImport.Editor
                 Rect sepRect = EditorGUILayout.GetControlRect(false, 1, GUILayout.ExpandWidth(true));
                 EditorGUI.DrawRect(sepRect, Styles.SeparatorColor);
 
-                // A height, because this block sits inside the details scroll view. There,
-                // ExpandHeight(true) has no parent height to expand INTO: the scroll view's
-                // content is unbounded, so the inner scroll views collapsed to their minimum
-                // and the dependency list showed about one row. An explicit height that grows
-                // with the list - clamped so a tool with twenty dependencies cannot push the
-                // actions off screen - is what makes the area usable.
+                // The first dependency is selected by default. The right half used to open on
+                // "You can select a dependency from left list", which asks the reader to make a
+                // choice before seeing anything - and the first row is as good an answer as any,
+                // because the list is declared in the manifest's own order. Re-applied whenever the
+                // remembered id is not in this list, so switching tools cannot leave the pane
+                // describing a dependency of the previous one.
+                bool selectionPresent = false;
+                foreach (string[] dependency in dependencies)
+                {
+                    if (dependency[0] == selectedDependencyId)
+                    {
+                        selectionPresent = true;
+                        break;
+                    }
+                }
+                if (!selectionPresent)
+                {
+                    selectedDependencyId = dependencies[0][0];
+                    dependencyDetailViewScrollPos = Vector2.zero;
+                }
+
                 float dependencyHeight = Mathf.Clamp(dependencies.Count * 22f + 12f, 96f, 220f);
                 using (new EditorGUILayout.HorizontalScope(GUILayout.Height(dependencyHeight)))
                 {
@@ -1327,15 +1351,23 @@ namespace ToolImport.Editor
                         dependencyDetailViewScrollPos = dependencyDetailScrollView.scrollPosition;
                         if (selectedDependency != null)
                         {
+                            bool known = IsInRegistry(selectedDependency[0]);
                             using (new EditorGUILayout.VerticalScope())
                             {
-                                GUILayout.Label($"{HumanConstraint(selectedDependency[1])} ({selectedDependency[2]} ) {(IsInRegistry(selectedDependency[0]) ? string.Empty : "  - not in this registry")} \n {selectedDependency[3]}",
+                                GUILayout.Label($"{HumanConstraint(selectedDependency[1])} ({selectedDependency[2]} ) {(known ? string.Empty : "  - not in this registry")} \n {selectedDependency[3]}",
                                 EditorStyles.miniLabel);
                                 GUILayout.FlexibleSpace();
-                                if (EditorGUILayout.LinkButton("Goto"))
+                                // Disabled for a dependency the registry does not carry. Now that
+                                // the first row is selected by default, an unknown one can BE the
+                                // selection, and a Goto that runs `show` on an absent id reports
+                                // E-NOT-FOUND - an error the user did nothing to provoke.
+                                using (new EditorGUI.DisabledScope(!known))
                                 {
-                                    Select(selectedDependencyId);
-                                    Repaint();
+                                    if (EditorGUILayout.LinkButton("Goto"))
+                                    {
+                                        Select(selectedDependencyId);
+                                        Repaint();
+                                    }
                                 }
                             }
                         }
@@ -1350,18 +1382,22 @@ namespace ToolImport.Editor
                 EditorGUI.DrawRect(sepRect, Styles.SeparatorColor);
             }
 
-            // Only this engine's inventory: a cross-engine tool's other payload never lands in
-            // this project, and listing it here would read as "these files are about to be
-            // written". The engine is filtered by the reader, which also keeps an unqualified
-            // (engine-less) declaration visible.
-            List<string> files = detailRecords.WillInstall(EngineName);
-            if (files.Count > 0)
+            // The declared inventory is a PREVIEW: what the artifact says it contains. Once a plan
+            // exists the plan is the authority - it lists the final destination of every file for
+            // this tool AND for the dependencies it pulls in, and after `--into` those paths are
+            // not the declared ones at all. Drawing both printed the same names twice, with two
+            // different meanings, and the shorter of the two lists was the misleading one.
+            if (planRecords == null)
             {
-                EditorGUILayout.Space();
-                EditorGUILayout.LabelField(string.Format("Installs {0} file(s)", files.Count), EditorStyles.boldLabel);
-                foreach (string file in files)
+                List<string> files = detailRecords.WillInstall(EngineName);
+                if (files.Count > 0)
                 {
-                    EditorGUILayout.LabelField("  " + file);
+                    EditorGUILayout.Space();
+                    EditorGUILayout.LabelField(string.Format("Installs {0} file(s)", files.Count), EditorStyles.boldLabel);
+                    foreach (string file in files)
+                    {
+                        EditorGUILayout.LabelField("  " + file);
+                    }
                 }
             }
 
@@ -1377,17 +1413,21 @@ namespace ToolImport.Editor
                 DrawPlan(planRecords);
             }
 
+            bool installable = IsInstallableHere();
+
             EditorGUILayout.EndScrollView();
 
             EditorGUILayout.Space();
 
-            bool installable = IsInstallableHere();
             if (!installable)
             {
                 string reason = UninstallableReason();
                 EditorGUILayout.HelpBox("Cannot install this tool.\n\n" + reason, MessageType.Warning);
             }
 
+            // Outside the scroll view: the destination belongs with the buttons that use it, and
+            // a field that scrolls away with a long description is a field the user has to hunt
+            // for right before clicking Install.
             DrawInstallDirectory(installable);
 
             EditorGUILayout.BeginHorizontal();
@@ -1428,11 +1468,13 @@ namespace ToolImport.Editor
         /// passed to the backend as `--into`, and the backend records the directory in the
         /// receipt, so uninstall finds the files afterwards without being told again.
         ///
-        /// Empty means "as the manifest declares", and the label shows what that is, because a
-        /// blank field with no hint is indistinguishable from a field the window failed to read.
-        /// The exact directory of an unpacked tool is only known once its artifact is inspected
-        /// (the manifest names the container's root, not the tool's), so the plan below is where
-        /// the resolved paths appear.
+        /// Empty means "as the manifest declares", and the empty field says so from inside itself,
+        /// because a blank field indistinguishable from one the window failed to read invites the
+        /// user to fill it in with something arbitrary. The rules - relative, replaces the tool's
+        /// folder, no absolute path - are on the header's tooltip rather than a paragraph under the
+        /// field, which cost every tool the vertical space. The exact directory of an unpacked tool
+        /// is only known once its artifact is inspected (the manifest names the container's root,
+        /// not the tool's), so the plan below is where the resolved paths appear.
         /// </remarks>
         private void DrawInstallDirectory(bool installable)
         {
@@ -1440,19 +1482,21 @@ namespace ToolImport.Editor
             string declared = mine == null || string.IsNullOrEmpty(mine.ContentRoot)
                 ? string.Empty
                 : mine.ContentRoot;
+            string overrideDirectory = InstallDirectoryFor(selectedId);
+
+            // The header sits on its own line with the rules in its tooltip. Typing is a way to
+            // make a typo; the panel and the plan are what guard against installing somewhere
+            // nobody meant.
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField(
+                new GUIContent("Install Into", InstallDirectoryHelp(declared, overrideDirectory.Length > 0)),
+                EditorStyles.boldLabel);
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                EditorGUILayout.LabelField("Install into", GUILayout.Width(96f));
-
-                string overrideDirectory = InstallDirectoryFor(selectedId);
                 string typed;
                 using (new EditorGUI.DisabledScope(busy || !installable))
                 {
-                    // Drawn by hand rather than with EditorGUILayout.TextField so a placeholder can
-                    // sit inside the empty field. An empty field that looks like every other field
-                    // reads as "this is filled in with nothing", which is a different thing from
-                    // "empty means the manifest's destination".
                     Rect fieldRect = EditorGUILayout.GetControlRect(
                         false, EditorGUIUtility.singleLineHeight, GUILayout.ExpandWidth(true));
                     GUI.SetNextControlName(INSTALL_INTO_CONTROL);
@@ -1483,6 +1527,14 @@ namespace ToolImport.Editor
                     SetInstallDirectory(selectedId, typed);
                 }
 
+                using (new EditorGUI.DisabledScope(busy || !installable))
+                {
+                    if (GUILayout.Button("Browse...", EditorStyles.miniButton, GUILayout.Width(70f)))
+                    {
+                        BrowseInstallDirectory();
+                    }
+                }
+
                 using (new EditorGUI.DisabledScope(busy || !installable || overrideDirectory.Length == 0))
                 {
                     if (GUILayout.Button("Default", EditorStyles.miniButton, GUILayout.Width(58f)))
@@ -1491,23 +1543,120 @@ namespace ToolImport.Editor
                     }
                 }
             }
+        }
 
-            if (!installable) return;
+        /// <summary>
+        /// What the `Install Into` field accepts and what it does, as the header's tooltip.
+        /// </summary>
+        /// <remarks>
+        /// Static and in one place: the field, the tooltip and the confirmation dialog are three
+        /// chances to describe the same rule differently, and they had already started to.
+        /// </remarks>
+        internal static string InstallDirectoryHelp(string declared, bool overridden)
+        {
+            string text =
+                "Project-relative, for example Assets/Vendor. Absolute paths and '..' are refused.\n\n" +
+                "This REPLACES the folder the tool installs into - the files inside it keep their " +
+                "layout, so a payload at " + (declared.Length > 0 ? declared : "Assets/SomeTool") +
+                "/Core/x.cs lands at <your folder>/Core/x.cs.\n\n";
 
-            EditorGUILayout.LabelField(
-                InstallDirectoryFor(selectedId).Length > 0
-                    ? "Project-relative, e.g. Assets/Vendor. This REPLACES the folder the tool " +
-                      "would install into - everything inside it keeps its layout, so " +
-                      "Assets/IMGUILib/Core/x.cs lands at <your folder>/Core/x.cs. Absolute paths " +
-                      "and '..' are refused; the resolved paths are in the plan below."
-                    : declared.Length > 0
-                        ? "Project-relative, e.g. Assets/Vendor; empty means under " + declared +
-                          ", as the manifest declares. The folder the tool occupies is derived from " +
-                          "the artifact, so the exact default appears in the plan. Absolute paths " +
-                          "and '..' are refused."
-                        : "Project-relative, e.g. Assets/Vendor. Empty installs where the manifest " +
-                          "declares; absolute paths and '..' are refused.",
-                EditorStyles.wordWrappedMiniLabel);
+            if (overridden)
+            {
+                return text + "Empty (or \"Default\") installs where the manifest declares; the exact " +
+                    "paths are in the plan.";
+            }
+            if (declared.Length > 0)
+            {
+                return text + "Empty means under " + declared + ", as the manifest declares. The exact " +
+                    "default is derived from the artifact, so it appears in the plan.";
+            }
+            return text + "Empty means where the manifest declares; the exact paths are in the plan.";
+        }
+
+        /// <summary>
+        /// Pick the install directory with a folder panel, and store it project-relative.
+        /// </summary>
+        /// <remarks>
+        /// The panel can only return an existing folder, which is the point: typing is a way to
+        /// make a typo that installs a tool somewhere nobody meant, and the field says nothing
+        /// until a plan is run. Its value is converted to the project-relative form the backend
+        /// requires - the CLI refuses an absolute path, so this conversion is not cosmetic.
+        ///
+        /// Picking the project root means "no override": an empty `--into` is an error, and an
+        /// empty field is already what "where the manifest declares" looks like.
+        /// </remarks>
+        private void BrowseInstallDirectory()
+        {
+            if (string.IsNullOrEmpty(selectedId)) return;
+
+            string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+            string picked = EditorUtility.OpenFolderPanel(
+                "Install into (a folder inside this project)", NormaliseDirectory(projectRoot), string.Empty);
+            if (string.IsNullOrEmpty(picked)) return;
+
+            string relative;
+            if (!TryProjectRelative(projectRoot, picked, out relative))
+            {
+                statusMessage =
+                    "That folder is outside this project. The install directory is project-relative.";
+                return;
+            }
+
+            SetInstallDirectory(selectedId, relative);
+
+            if (relative.Length == 0)
+            {
+                statusMessage = "Installing where the manifest declares. The plan names the exact paths.";
+            }
+            else if (!relative.Equals("Assets", StringComparison.OrdinalIgnoreCase)
+                && !relative.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))
+            {
+                // Not refused: a project-relative path outside Assets is legal for the backend.
+                // It is not imported by the editor either, which is the part worth saying.
+                statusMessage =
+                    "Note: files outside Assets/ are written but not imported by Unity as assets.";
+            }
+            else
+            {
+                statusMessage = "Install directory set to " + relative + ".";
+            }
+        }
+
+        /// <summary>
+        /// Turn an absolute path chosen in the folder panel into the project-relative directory
+        /// the backend requires.
+        /// </summary>
+        /// <remarks>
+        /// False when the folder is outside the project, which the CLI would refuse anyway - but
+        /// refusing it HERE keeps the field from holding a path that cannot work, and says so
+        /// before a plan is run.
+        ///
+        /// The comparison appends a separator before testing the prefix. Without it,
+        /// `C:/Projects/MyGameOther` starts with `C:/Projects/MyGame` and would be accepted as
+        /// inside a project it is next to.
+        /// </remarks>
+        /// <param name="projectRoot">the project root, absolute</param>
+        /// <param name="folder">the chosen folder, absolute</param>
+        /// <param name="relative">project-relative form; empty for the root itself</param>
+        internal static bool TryProjectRelative(string projectRoot, string folder, out string relative)
+        {
+            relative = string.Empty;
+            string root = NormaliseDirectory(projectRoot);
+            string candidate = NormaliseDirectory(folder);
+            if (root.Length == 0 || candidate.Length == 0) return false;
+
+            if (string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (!candidate.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase)) return false;
+
+            relative = candidate.Substring(root.Length + 1);
+            return true;
+        }
+
+        /// <summary>A path with forward slashes and no trailing separator, for comparison.</summary>
+        private static string NormaliseDirectory(string path)
+        {
+            return (path ?? string.Empty).Replace('\\', '/').TrimEnd('/');
         }
 
         /// <summary>The directory the user chose for a tool, or empty when they chose none.</summary>
@@ -1679,16 +1828,11 @@ namespace ToolImport.Editor
             string author = detailRecords.Detail("author");
             string homepage = detailRecords.Detail("homepage");
             string deprecated = detailRecords.Detail("deprecated");
-
-            // Resolved BEFORE the facts line: whether the licence belongs there depends on
-            // whether it ends up as a link, and computing it twice let the two disagree.
             string licenseUrl = LicenseUrl(license, detailRecords.Detail("licenseUrl"));
 
             facts.Clear();
             if (!string.IsNullOrEmpty(version)) facts.Add(version);
             if (!string.IsNullOrEmpty(type)) facts.Add(type);
-            // A licence with no linkable destination stays inline; otherwise it moves to the link
-            // row below, because "MIT" is a link to what MIT means, not a bare word.
             if (!string.IsNullOrEmpty(license) && licenseUrl.Length == 0) facts.Add(license);
             if (!string.IsNullOrEmpty(author)) facts.Add("by " + author);
             string releasedAt = detailRecords.Detail("releasedAt");
@@ -1708,14 +1852,10 @@ namespace ToolImport.Editor
                 stringBuilder.Clear();
             }
 
-            // "Installed" alone cannot say "installed, and behind". The menu marks the installed
-            // release, but two numbers in two places is exactly what a reader should not have to
-            // compare; this states it once, where the tool is described - and names the gesture,
-            // because a right-click menu is invisible until somebody knows it is there.
             string installedAt;
             installedVersions.TryGetValue(selectedId, out installedAt);
             string latestPublished;
-            List<string> publishedVersions = VersionsOf(selectedId, out latestPublished);
+            VersionsOf(selectedId, out latestPublished);
             if (!string.IsNullOrEmpty(installedAt) && !string.IsNullOrEmpty(latestPublished)
                 && installedAt != latestPublished)
             {
@@ -1724,22 +1864,11 @@ namespace ToolImport.Editor
                     ". Right-click this tool in the list to choose " + latestPublished + ".",
                     EditorStyles.wordWrappedMiniLabel);
             }
-            else if (publishedVersions.Count > 1)
-            {
-                EditorGUILayout.LabelField(
-                    publishedVersions.Count + " versions published. Right-click this tool in the list to choose one.",
-                    EditorStyles.wordWrappedMiniLabel);
-            }
+            // No "N versions published" line. It stated a count and then named a gesture; the
+            // gesture is discoverable from the menu itself, and the row already shows the latest.
+            // It also spent a line on every tool that has more than one release, which is most of
+            // them once a project has been maintained for a while.
 
-            // Links, as clickable labels rather than plain text: a URL that cannot be
-            // clicked is a URL the user has to select and paste by hand, which is the
-            // thing clickable text exists to avoid.
-            //
-            // Each is a SEPARATE destination and appears only when declared, so a tool that
-            // declares none shows no dead controls. Release notes are a link and not a panel:
-            // they belong to the maintainer's site, which can publish them per release and
-            // correct them afterwards. Copying that text into the window meant a stale copy
-            // inside a tool whose whole job is version precision.
             string documentation = detailRecords.Detail("documentation");
             string releaseNotes = detailRecords.Detail("releaseNotes");
 
@@ -1748,10 +1877,6 @@ namespace ToolImport.Editor
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    // Separated by a middot. Two links drawn side by side with only their own
-                    // padding between them read as one phrase ("Documentation Release notes"),
-                    // and in a row whose labels are words rather than underlines nothing marks
-                    // where one destination ends and the next begins.
                     bool firstLink = true;
                     if (DrawLinkAfterSeparator("Homepage", homepage, ref firstLink))
                     {
@@ -1765,11 +1890,7 @@ namespace ToolImport.Editor
                     {
                         Application.OpenURL(releaseNotes);
                     }
-                    // The licence name alone, with no "License:" prefix: in a row of four links
-                    // a prefixed one reads as a labelled field, and "MIT" next to "Homepage"
-                    // is not ambiguous - the tooltip says where it goes.
-                    if (DrawLinkAfterSeparator(
-                            string.IsNullOrEmpty(license) ? "License" : license, licenseUrl, ref firstLink))
+                    if (DrawLinkAfterSeparator(string.IsNullOrEmpty(license) ? "License" : license, licenseUrl, ref firstLink))
                     {
                         Application.OpenURL(licenseUrl);
                     }
@@ -1796,7 +1917,7 @@ namespace ToolImport.Editor
             if (string.IsNullOrEmpty(url)) return false;
 
             var content = new GUIContent(label, url);
-            GUIStyle style = EditorStyles.linkLabel;
+            GUIStyle style = Styles.GetOrCacheStyle("LinkStyle", () => Styles.GetStyle(IMGUIUtility.GetDeriveAlignedStyle(EditorStyles.linkLabel, FontStyle.BoldAndItalic)));
             Rect rect = GUILayoutUtility.GetRect(content, style);
             EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
             return GUI.Button(rect, content, style);
@@ -1816,16 +1937,7 @@ namespace ToolImport.Editor
 
             if (!first)
             {
-                GUIStyle separator = Styles.GetOrCacheStyle(
-                    "linkSeparator",
-                    () => Styles.GetStyle(EditorStyles.miniLabel, style =>
-                    {
-                        style.alignment = TextAnchor.MiddleCenter;
-                        style.normal.textColor = EditorGUIUtility.isProSkin
-                            ? new Color(0.6f, 0.6f, 0.6f)
-                            : new Color(0.4f, 0.4f, 0.4f);
-                    }));
-                GUILayout.Label("·", separator, GUILayout.Width(14f));
+                GUILayout.Space(5f);
             }
 
             first = false;
@@ -1903,10 +2015,18 @@ namespace ToolImport.Editor
                 return;
             }
 
-            foreach (string value in values)
+            // ONE multi-line label rather than one LabelField per value. Every control in a
+            // vertical layout is separated by the layout's spacing, so a five-item list carried
+            // five gaps and read as five paragraphs; a newline inside one label is the tight
+            // line break the list wants.
+            stringBuilder.Clear();
+            for (int i = 0; i < values.Count; i++)
             {
-                EditorGUILayout.LabelField("- " + value, itemStyle);
+                stringBuilder.Append("- ").Append(values[i]);
+                if (i < values.Count - 1) stringBuilder.Append('\n');
             }
+            EditorGUILayout.LabelField(stringBuilder.ToString(), itemStyle);
+            stringBuilder.Clear();
         }
 
         /// <summary>Is this tool id present in the loaded listing?</summary>
@@ -1998,7 +2118,14 @@ namespace ToolImport.Editor
         }
 
         /// <summary>Render the plan and its verification outcome.</summary>
-        private static void DrawPlan(BackendRecords plan)
+        /// <remarks>
+        /// The tool and file lines are drawn inside a HORIZONTAL scroll view, with labels that
+        /// report their own width rather than expanding to the pane. `LabelField` fills the width
+        /// it is given and clips whatever does not fit, so a long destination was truncated with
+        /// no way to see the rest - and the file name is the end of the line, which is exactly
+        /// the part that got cut.
+        /// </remarks>
+        private void DrawPlan(BackendRecords plan)
         {
             List<string> problems = plan.Problems();
             if (problems.Count > 0)
@@ -2020,30 +2147,57 @@ namespace ToolImport.Editor
                       "this is understood.",
                 ok ? MessageType.Info : MessageType.Error);
 
-            foreach (string[] tool in plan.Of("PLANTOOL"))
-            {
-                if (tool.Length < 3) continue;
-                string skipped = tool.Length > 10 ? tool[10] : string.Empty;
-                if (!string.IsNullOrEmpty(skipped))
+            GUIStyle headerStyle = Styles.GetOrCacheStyle("planToolLine", () => Styles.GetStyle(
+                EditorStyles.boldLabel, style =>
                 {
-                    EditorGUILayout.LabelField(
-                        tool[0] + "/" + tool[2] + ": " + skipped, EditorStyles.wordWrappedMiniLabel);
-                    continue;
+                    style.wordWrap = false;
+                    style.clipping = TextClipping.Clip;
+                }));
+            GUIStyle lineStyle = Styles.GetOrCacheStyle("planFileLine", () => Styles.GetStyle(
+                EditorStyles.label, style =>
+                {
+                    style.wordWrap = false;
+                    style.clipping = TextClipping.Clip;
+                }));
+
+            // Vertical scrolling is the pane's job; this scroll view only moves sideways, so the
+            // plan grows downward with everything else. Both bars are left on "when needed":
+            // forcing a horizontal bar onto a short plan draws an empty strip under it.
+            using (var planScroller = new EditorGUILayout.ScrollViewScope(planScroll, false, false))
+            {
+                planScroll = planScroller.scrollPosition;
+
+                foreach (string[] tool in plan.Of("PLANTOOL"))
+                {
+                    if (tool.Length < 3) continue;
+                    string skipped = tool.Length > 10 ? tool[10] : string.Empty;
+                    if (!string.IsNullOrEmpty(skipped))
+                    {
+                        GUILayout.Label(
+                            tool[0] + "/" + tool[2] + ": " + skipped,
+                            Styles.GetOrCacheStyle("planSkippedLine", () => Styles.GetStyle(
+                                EditorStyles.miniLabel, style =>
+                                {
+                                    style.wordWrap = false;
+                                    style.clipping = TextClipping.Clip;
+                                })));
+                        continue;
+                    }
+
+                    string artifact = tool.Length > 3 ? tool[3] : "?";
+                    if (tool.Length > 4 && !string.IsNullOrEmpty(tool[4])) artifact += "/" + tool[4];
+                    GUILayout.Label(
+                        string.Format("{0} {1} [{2}] {3} - {4} bytes - needed by {5}",
+                            tool[0], tool[1], tool[2], artifact,
+                            tool.Length > 5 ? tool[5] : "?",
+                            tool.Length > 9 && !string.IsNullOrEmpty(tool[9]) ? tool[9] : "user"),
+                        headerStyle);
                 }
 
-                string artifact = tool.Length > 3 ? tool[3] : "?";
-                if (tool.Length > 4 && !string.IsNullOrEmpty(tool[4])) artifact += "/" + tool[4];
-                EditorGUILayout.LabelField(
-                    string.Format("{0} {1} [{2}] {3} - {4} bytes - needed by {5}",
-                        tool[0], tool[1], tool[2], artifact,
-                        tool.Length > 5 ? tool[5] : "?",
-                        tool.Length > 9 && !string.IsNullOrEmpty(tool[9]) ? tool[9] : "user"),
-                    EditorStyles.boldLabel);
-            }
-
-            foreach (string[] file in plan.Of("PLANFILE"))
-            {
-                if (file.Length >= 2) EditorGUILayout.LabelField("    " + file[0] + " -> " + file[1]);
+                foreach (string[] file in plan.Of("PLANFILE"))
+                {
+                    if (file.Length >= 2) GUILayout.Label("    " + file[0] + " -> " + file[1], lineStyle);
+                }
             }
         }
 
