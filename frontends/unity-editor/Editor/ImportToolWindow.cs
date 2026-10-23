@@ -2160,43 +2160,73 @@ namespace ToolImport.Editor
                     style.clipping = TextClipping.Clip;
                 }));
 
-            // Vertical scrolling is the pane's job; this scroll view only moves sideways, so the
-            // plan grows downward with everything else. Both bars are left on "when needed":
-            // forcing a horizontal bar onto a short plan draws an empty strip under it.
-            using (var planScroller = new EditorGUILayout.ScrollViewScope(planScroll, false, false))
-            {
-                planScroll = planScroller.scrollPosition;
-
-                foreach (string[] tool in plan.Of("PLANTOOL"))
+            GUIStyle skippedStyle = Styles.GetOrCacheStyle("planSkippedLine", () => Styles.GetStyle(
+                EditorStyles.miniLabel, style =>
                 {
-                    if (tool.Length < 3) continue;
-                    string skipped = tool.Length > 10 ? tool[10] : string.Empty;
-                    if (!string.IsNullOrEmpty(skipped))
-                    {
-                        GUILayout.Label(
-                            tool[0] + "/" + tool[2] + ": " + skipped,
-                            Styles.GetOrCacheStyle("planSkippedLine", () => Styles.GetStyle(
-                                EditorStyles.miniLabel, style =>
-                                {
-                                    style.wordWrap = false;
-                                    style.clipping = TextClipping.Clip;
-                                })));
-                        continue;
-                    }
+                    style.wordWrap = false;
+                    style.clipping = TextClipping.Clip;
+                }));
 
-                    string artifact = tool.Length > 3 ? tool[3] : "?";
-                    if (tool.Length > 4 && !string.IsNullOrEmpty(tool[4])) artifact += "/" + tool[4];
-                    GUILayout.Label(
-                        string.Format("{0} {1} [{2}] {3} - {4} bytes - needed by {5}",
-                            tool[0], tool[1], tool[2], artifact,
-                            tool.Length > 5 ? tool[5] : "?",
-                            tool.Length > 9 && !string.IsNullOrEmpty(tool[9]) ? tool[9] : "user"),
-                        headerStyle);
+            // The lines are collected and MEASURED before anything is drawn. A scroll view inside
+            // another scroll view has no parent height to expand into, so it collapsed to a single
+            // row while the content had many - the same trap the dependency list documents below.
+            // The height therefore comes from the lines themselves, not from the layout.
+            var lines = new List<KeyValuePair<string, GUIStyle>>();
+
+            foreach (string[] tool in plan.Of("PLANTOOL"))
+            {
+                if (tool.Length < 3) continue;
+                string skipped = tool.Length > 10 ? tool[10] : string.Empty;
+                if (!string.IsNullOrEmpty(skipped))
+                {
+                    lines.Add(new KeyValuePair<string, GUIStyle>(
+                        tool[0] + "/" + tool[2] + ": " + skipped, skippedStyle));
+                    continue;
                 }
 
-                foreach (string[] file in plan.Of("PLANFILE"))
+                string artifact = tool.Length > 3 ? tool[3] : "?";
+                if (tool.Length > 4 && !string.IsNullOrEmpty(tool[4])) artifact += "/" + tool[4];
+                lines.Add(new KeyValuePair<string, GUIStyle>(
+                    string.Format("{0} {1} [{2}] {3} - {4} bytes - needed by {5}",
+                        tool[0], tool[1], tool[2], artifact,
+                        tool.Length > 5 ? tool[5] : "?",
+                        tool.Length > 9 && !string.IsNullOrEmpty(tool[9]) ? tool[9] : "user"),
+                    headerStyle));
+            }
+
+            foreach (string[] file in plan.Of("PLANFILE"))
+            {
+                if (file.Length >= 2)
                 {
-                    if (file.Length >= 2) GUILayout.Label("    " + file[0] + " -> " + file[1], lineStyle);
+                    lines.Add(new KeyValuePair<string, GUIStyle>("    " + file[0] + " -> " + file[1], lineStyle));
+                }
+            }
+
+            if (lines.Count == 0) return;
+
+            float contentWidth = 0f;
+            float contentHeight = 0f;
+            foreach (var line in lines)
+            {
+                Vector2 size = line.Value.CalcSize(new GUIContent(line.Key));
+                contentWidth = Mathf.Max(contentWidth, size.x);
+                contentHeight += Mathf.Max(size.y, EditorGUIUtility.singleLineHeight);
+            }
+
+            // Only the sideways scrolling is a scroll view. The height is the content's, so the
+            // block grows downward with the pane instead of becoming a window onto itself; the
+            // horizontal bar, when it appears, lives INSIDE the box and is paid for here, or it
+            // would cover the last line - clipping again, by another route.
+            float availableWidth = Mathf.Max(120f, position.width - ToolListWidth() - 40f);
+            float height = contentHeight + (contentWidth > availableWidth ? 17f : 0f) + 4f;
+
+            using (var planScroller = new EditorGUILayout.ScrollViewScope(
+                planScroll, false, false, GUILayout.Height(height)))
+            {
+                planScroll = planScroller.scrollPosition;
+                foreach (var line in lines)
+                {
+                    GUILayout.Label(line.Key, line.Value);
                 }
             }
         }
