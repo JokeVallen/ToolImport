@@ -784,9 +784,17 @@ namespace ToolImport.Editor
         internal static bool Matches(AvailableTool tool, string needle)
         {
             if (string.IsNullOrEmpty(needle)) return true;
-            string name = tool.DisplayName;
-            if (string.IsNullOrEmpty(name)) return false;
-            return name.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
+            // Prefix match, not substring: typing "core" is meant to find "Core Editor Utils",
+            // and typing "utils" is not meant to find everything with that word in the middle.
+            // The id is matched the same way, because it is what a user types when they know the
+            // package name rather than the display name. The Godot front end matches identically.
+            if (tool.DisplayName != null
+                && tool.DisplayName.StartsWith(needle, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            return tool.Id != null
+                && tool.Id.StartsWith(needle, StringComparison.OrdinalIgnoreCase);
         }
 
         // ------------------------------------------------------------------
@@ -1115,11 +1123,19 @@ namespace ToolImport.Editor
                     // A submenu, not a flat list. The row menu is where every per-tool action
                     // belongs, and a release chooser that occupies the top level leaves nowhere
                     // for the second action to go without pushing the versions around.
+                    //
+                    // "installed" goes at the FRONT of the row, not the end: scanning a list of
+                    // releases for the one this project already has is the reason the menu is
+                    // opened, and a suffix is the last place the eye reaches. The check mark
+                    // still means "pinned", which is not the same thing - browsing an older
+                    // release while a newer one is installed is exactly the case where the two
+                    // differ.
                     menu.AddItem(
                         new GUIContent(
-                            "Versions/" + version
-                            + (isLatest ? "  (latest)" : string.Empty)
-                            + (isInstalled ? "  • installed" : string.Empty)),
+                            "Versions/"
+                            + (isInstalled ? "[installed]  " : string.Empty)
+                            + version
+                            + (isLatest ? "  (latest)" : string.Empty)),
                         isCurrent,
                         () => PinVersion(chosen));
                 }

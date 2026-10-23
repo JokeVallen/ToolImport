@@ -32,8 +32,10 @@ const ENGINE := "godot"
 ## enough to fit a 1080p screen with room left for the editor.
 const WINDOW_SIZE := Vector2i(1000, 660)
 
-## How tall the plan block may get before it scrolls itself. See _size_plan_block.
-const PLAN_MAX_HEIGHT := 220.0
+## What the list is filtered to. The Unity window offers the same three.
+enum Filter { ALL, INSTALLED, NOT_INSTALLED }
+
+const FILTER_LABELS := ["All tools", "Installed", "Not installed"]
 
 var _backend: Backend = null
 var _project_root := ""
@@ -41,16 +43,22 @@ var _settings_window: Window = null
 
 var _registry_label: Label
 var _search_edit: LineEdit
+var _filter_button: MenuButton
+var _collapse_button: Button
 var _list: ItemList
 var _meta: RichTextLabel
 var _install_edit: LineEdit
 var _defaults_label: Label
+var _installs_header: Label
 var _status: Label
 var _plan_box: VBoxContainer
 var _plan_scroll: ScrollContainer
 var _verify_button: Button
 var _install_button: Button
 var _uninstall_button: Button
+
+var _filter: Filter = Filter.ALL
+var _list_collapsed := false
 
 var _tools: Array[PackedStringArray] = []
 var _versions := {}
@@ -136,6 +144,24 @@ func _build_ui() -> void:
 
 	toolbar.add_child(VSeparator.new())
 
+	# The list can be folded away, because the detail pane is the part being read most of the time
+	# and a tool list of three entries does not need a third of the width. Same gesture as the
+	# Unity window's collapse rail.
+	_collapse_button = Button.new()
+	_collapse_button.text = "‹"
+	_collapse_button.tooltip_text = "Hide the tool list"
+	_collapse_button.pressed.connect(_on_collapse_pressed)
+	toolbar.add_child(_collapse_button)
+
+	_filter_button = MenuButton.new()
+	_filter_button.text = FILTER_LABELS[0]
+	_filter_button.flat = false
+	var filter_menu := _filter_button.get_popup()
+	for index in FILTER_LABELS.size():
+		filter_menu.add_item(FILTER_LABELS[index], index)
+	filter_menu.id_pressed.connect(_on_filter_chosen)
+	toolbar.add_child(_filter_button)
+
 	_search_edit = LineEdit.new()
 	_search_edit.placeholder_text = "filter by name"
 	_search_edit.custom_minimum_size = Vector2(200, 0)
@@ -155,25 +181,50 @@ func _build_ui() -> void:
 	_list.gui_input.connect(_on_list_gui_input)
 	split.add_child(_list)
 
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	split.add_child(right)
+
+	# The scrolling part ends above "Install Into": the destination field and the three buttons
+	# are what the user acts on, and a long description used to push them out of reach.
 	var detail_scroll := ScrollContainer.new()
 	detail_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	split.add_child(detail_scroll)
+	detail_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.add_child(detail_scroll)
 
 	var details := VBoxContainer.new()
 	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail_scroll.add_child(details)
 
 	_meta = RichTextLabel.new()
-	_meta.bbcode_enabled = false
+	# BBCode on: the header mixes sizes and styles (name, id, an italic facts line) and the links
+	# are real links, which is how the Unity window draws them too.
+	_meta.bbcode_enabled = true
 	_meta.fit_content = true
 	_meta.scroll_active = false
 	_meta.selection_enabled = true
 	_meta.meta_clicked.connect(_on_meta_clicked)
+	_meta.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	details.add_child(_meta)
+
+	_installs_header = Label.new()
+	_installs_header.text = "Installs"
+	details.add_child(_installs_header)
+
+	# Horizontal scrolling only: a planned path is longer than the window, and the vertical axis
+	# belongs to the pane, so this block is as tall as its lines.
+	_plan_scroll = ScrollContainer.new()
+	_plan_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_plan_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.add_child(_plan_scroll)
+
+	_plan_box = VBoxContainer.new()
+	_plan_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_plan_scroll.add_child(_plan_box)
 
 	_defaults_label = Label.new()
 	_defaults_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	details.add_child(_defaults_label)
+	right.add_child(_defaults_label)
 
 	var destination_header := Label.new()
 	destination_header.text = "Install Into"
@@ -182,7 +233,7 @@ func _build_ui() -> void:
 		+ "This REPLACES the folder the tool installs into - the files inside it keep their "
 		+ "layout. Empty installs where the manifest declares; the exact paths are in the plan."
 	)
-	details.add_child(destination_header)
+	right.add_child(destination_header)
 
 	var destination_row := HBoxContainer.new()
 	_install_edit = LineEdit.new()
@@ -197,7 +248,7 @@ func _build_ui() -> void:
 	destination_row.add_child(_install_edit)
 	destination_row.add_child(browse_button)
 	destination_row.add_child(default_button)
-	details.add_child(destination_row)
+	right.add_child(destination_row)
 
 	var actions := HBoxContainer.new()
 	_verify_button = Button.new()
@@ -212,22 +263,7 @@ func _build_ui() -> void:
 	actions.add_child(_verify_button)
 	actions.add_child(_install_button)
 	actions.add_child(_uninstall_button)
-	details.add_child(actions)
-
-	var plan_header := Label.new()
-	plan_header.text = "Plan"
-	details.add_child(plan_header)
-
-	# Both scrollbars are "when needed": a short plan shows no bars, a long path scrolls
-	# sideways, and past PLAN_MAX_HEIGHT the block scrolls itself.
-	_plan_scroll = ScrollContainer.new()
-	_plan_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	_plan_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	details.add_child(_plan_scroll)
-
-	_plan_box = VBoxContainer.new()
-	_plan_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_plan_scroll.add_child(_plan_box)
+	right.add_child(actions)
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -469,11 +505,20 @@ func _rebuild_list() -> void:
 		var id: String = fields[0]
 		var display: String = fields[6] if fields.size() > 6 else id
 		var version: String = fields[1] if fields.size() > 1 else ""
-		var marker := "* " if _installed.has(id) else "  "
-		var label := "%s%s  (%s)" % [marker, display, version]
-		if needle != "" and not label.to_lower().contains(needle) and not id.to_lower().contains(needle):
+
+		if _filter == Filter.INSTALLED and not _installed.has(id):
+			continue
+		if _filter == Filter.NOT_INSTALLED and _installed.has(id):
 			continue
 
+		# Prefix match, not substring: typing "core" is meant to find "Core Editor Utils", and
+		# typing "utils" is not meant to find everything with that word in the middle. The Unity
+		# front end matches the same way.
+		if needle != "" and not display.to_lower().begins_with(needle) and not id.to_lower().begins_with(needle):
+			continue
+
+		var marker := "* " if _installed.has(id) else "  "
+		var label := "%s%s  (%s)" % [marker, display, version]
 		var index := _list.add_item(label)
 		_list.set_item_metadata(index, id)
 		if id == keep:
@@ -485,12 +530,28 @@ func _rebuild_list() -> void:
 		_on_tool_selected(0)
 
 	# An empty list needs a reason. "Nothing happened" is indistinguishable from a defect, and
-	# the two causes here are completely different: no paths yet, or no tool for this engine.
+	# the causes here are different: nothing loaded, a filter that matches nothing, or no tool
+	# for this engine.
 	if _list.item_count == 0:
 		if _tools.is_empty():
-			_render_empty("No tools loaded. Set the paths above, then press Refresh.")
+			_render_empty("No tools loaded. Check Settings, then press Refresh.")
+		elif needle != "" or _filter != Filter.ALL:
+			_render_empty("No tool matches the current filter.")
 		else:
 			_render_empty("No tool in this registry supports Godot yet.")
+
+
+func _on_filter_chosen(index: int) -> void:
+	_filter = index as Filter
+	_filter_button.text = FILTER_LABELS[index]
+	_rebuild_list()
+
+
+func _on_collapse_pressed() -> void:
+	_list_collapsed = not _list_collapsed
+	_list.visible = not _list_collapsed
+	_collapse_button.text = "›" if _list_collapsed else "‹"
+	_collapse_button.tooltip_text = "Show the tool list" if _list_collapsed else "Hide the tool list"
 
 
 func _on_tool_selected(index: int) -> void:
@@ -550,8 +611,11 @@ func _show_version_menu(index: int) -> void:
 		var label := version
 		if entry["latest"]:
 			label += "  (latest)"
+		# The installed release is marked at the START of its label, not with a trailing note:
+		# scanning a list of versions for the one already in the project is the reason the menu
+		# is opened, and a suffix at the end of a row is the last place the eye reaches.
 		if version == installed:
-			label += "  - installed"
+			label = "[installed]  " + label
 		versions.add_item(label, position)
 		versions.set_item_checked(position, version == _chosen_version(id))
 
@@ -590,15 +654,23 @@ func _pin_version(id: String, version: String) -> void:
 func _on_detail_ready(records: Array) -> void:
 	_detail = records
 	_plan = []
+	# _render_detail draws the Installs block too, from the target when there is no plan.
 	_render_detail()
-	_render_plan()
 	_set_busy(false)
 
 
 func _render_empty(message: String) -> void:
 	if _meta != null:
 		_meta.clear()
-		_meta.add_text(message)
+		_meta.append_text(message)
+	# A header with nothing under it is worse than no header: this is the state before a tool is
+	# picked, and "Installs" with an empty block reads as a tool that installs nothing.
+	if _installs_header != null:
+		_installs_header.visible = false
+	if _plan_box != null:
+		for child in _plan_box.get_children():
+			_plan_box.remove_child(child)
+			child.queue_free()
 
 
 func _render_detail() -> void:
@@ -614,38 +686,50 @@ func _render_detail() -> void:
 	var deprecated := Backend.detail(_detail, "deprecated") == "true"
 	var yanked := Backend.detail(_detail, "yanked") == "true"
 
-	_meta.push_font_size(16)
-	_meta.add_text(display if display != "" else _selected_id)
-	_meta.pop()
-
+	var display_name := display if display != "" else _selected_id
 	var facts := PackedStringArray()
 	if version != "":
 		facts.append(version)
 	if type != "":
 		facts.append(type)
+	var author := Backend.detail(_detail, "author")
+	if author != "":
+		facts.append("by " + author)
 	if released != "":
 		facts.append("released " + released)
 	if deprecated:
 		facts.append("DEPRECATED")
 	if yanked:
 		facts.append("YANKED")
+
+	# The header is three lines, each a different size: the name, the id it is installed under,
+	# and the facts. The id is what a user needs when the display name and the package name
+	# differ, and it is quieter than the name because it is read second.
+	_meta.append_text("[font_size=18][b]%s[/b][/font_size]" % _escape(display_name))
+	_meta.append_text("\n[font_size=11]%s[/font_size]" % _escape(_selected_id))
 	if facts.size() > 0:
-		_meta.add_text("\n" + " - ".join(facts))
+		_meta.append_text(
+			"\n[font_size=11][i]%s[/i][/font_size]" % _escape("  •  ".join(facts))
+		)
+
+	_render_links()
 
 	var description := Backend.detail(_detail, "description")
 	if description != "":
-		_meta.add_text("\n\n" + description)
+		_meta.append_text("\n\n[b]Description[/b]")
+		_meta.append_text("\n    " + _escape(description))
 
 	_list_section("Engines", Backend.detail(_detail, "engines"))
 	_list_section("Provides", Backend.detail(_detail, "provides"))
 	_list_section("Injects", Backend.detail(_detail, "injects"))
 	_list_section("Tags", Backend.detail(_detail, "tags"))
-
-	_render_targets()
 	_render_dependencies()
-	_render_links()
 
 	_defaults_label.text = _defaults_text()
+	_installs_header.visible = true
+	# The Installs block is the plan when there is one and the declared target otherwise; the two
+	# are never shown together, because they answer the same question.
+	_render_plan()
 
 	var installed: String = str(_installed_versions.get(_selected_id, ""))
 	var latest := _latest_of(_selected_id)
@@ -664,17 +748,20 @@ func _list_section(header: String, comma_separated: String) -> void:
 		if value != "":
 			values.append(value)
 
-	_meta.add_text("\n\n")
-	_meta.push_bold()
-	_meta.add_text(header)
-	_meta.pop()
+	_meta.append_text("\n\n[b]%s[/b]" % _escape(header))
 	if values.is_empty():
-		_meta.add_text("\n- (none)")
+		_meta.append_text("\n    - (none)")
 		return
 	for value in values:
-		_meta.add_text("\n- " + value)
+		# Four spaces of indent, like the Unity window: a section's items are its content, and
+		# without the indent a header and an item read as two headers.
+		_meta.append_text("\n    - " + _escape(value))
 
 
+## What the tool declares it will install, when there is no plan to say it precisely.
+##
+## The plan is the authority once it exists; before that, the target's own declaration is the
+## only answer available, and it is the one the user reads while deciding whether to plan at all.
 func _render_targets() -> void:
 	var mine: PackedStringArray = PackedStringArray()
 	for fields in Backend.of(_detail, "TARGET"):
@@ -682,30 +769,26 @@ func _render_targets() -> void:
 			mine = fields
 
 	if mine.is_empty():
+		_plan_box.add_child(_plan_line("No Godot target is declared for this release."))
 		return
 
 	# TARGET: engine minEngineVersion otherRequirements type format artifactPath contentRoot
 	#         targetPath editorOnly externalUrl externalRef
-	_meta.add_text("\n\n")
-	_meta.push_bold()
-	_meta.add_text("Target (%s)" % ENGINE)
-	_meta.pop()
-
 	var kind := mine[3] if mine.size() > 3 else "?"
 	var format := mine[4] if mine.size() > 4 else ""
-	_meta.add_text("\n%s%s  (needs engine %s)" % [
+	_plan_box.add_child(_plan_line("%s%s  - needs engine %s" % [
 		kind,
 		("/" + format) if format != "" else "",
 		mine[1] if mine.size() > 1 else "?",
-	])
+	]))
 	if mine.size() > 5 and mine[5] != "":
-		_meta.add_text("\nartifact: " + mine[5])
+		_plan_box.add_child(_plan_line("artifact: " + mine[5]))
 	if mine.size() > 6 and mine[6] != "":
-		_meta.add_text("\nroot: " + mine[6])
+		_plan_box.add_child(_plan_line("into:     " + mine[6]))
 	if mine.size() > 7 and mine[7] != "":
-		_meta.add_text("\nfile: " + mine[7])
+		_plan_box.add_child(_plan_line("lands at: " + mine[7]))
 	if mine.size() > 8 and mine[8] == "true":
-		_meta.add_text("\n(editor only)")
+		_plan_box.add_child(_plan_line("editor only: excluded from player builds"))
 
 
 func _render_dependencies() -> void:
@@ -713,10 +796,7 @@ func _render_dependencies() -> void:
 	if dependencies.is_empty():
 		return
 
-	_meta.add_text("\n\n")
-	_meta.push_bold()
-	_meta.add_text("Dependencies")
-	_meta.pop()
+	_meta.append_text("\n\n[b]Dependencies[/b]")
 
 	for fields in dependencies:
 		if fields.size() < 3:
@@ -727,43 +807,46 @@ func _render_dependencies() -> void:
 		# A dependency that is not in this registry cannot be opened; it is still named, because
 		# "missing" is information the plan will report anyway.
 		if _is_in_registry(id):
-			_meta.add_text("\n- ")
-			_meta.push_meta("select:" + id)
-			_meta.add_text(id)
-			_meta.pop()
-			_meta.add_text("  " + constraint + (" (optional)" if optional else ""))
+			_meta.append_text("\n    - [url=select:%s]%s[/url]  %s%s" % [
+				_escape(id), _escape(id), _escape(constraint), " (optional)" if optional else "",
+			])
 		else:
-			_meta.add_text("\n- %s  %s%s  - not in this registry" % [
-				id, constraint, " (optional)" if optional else ""
+			_meta.append_text("\n    - %s  %s%s  - not in this registry" % [
+				_escape(id), _escape(constraint), " (optional)" if optional else "",
 			])
 
 
+## The outbound links, as links.
+##
+## They sit directly under the facts line, the way the Unity window's LinkButtons do: a link is
+## part of the tool's identity, not a section of prose, and putting it above the description keeps
+## it from being buried under a long one.
 func _render_links() -> void:
 	var links := [
 		["Homepage", Backend.detail(_detail, "homepage")],
 		["Documentation", Backend.detail(_detail, "documentation")],
 		["Release notes", Backend.detail(_detail, "releaseNotes")],
 	]
+	var license_url := Backend.detail(_detail, "licenseUrl")
+	if license_url != "":
+		links.append(["License", license_url])
 
-	var any := false
-	for entry in links:
-		if entry[1] != "":
-			any = true
-	if not any:
-		return
-
-	_meta.add_text("\n\n")
-	_meta.push_bold()
-	_meta.add_text("Links")
-	_meta.pop()
+	var parts := PackedStringArray()
 	for entry in links:
 		if entry[1] == "":
 			continue
-		_meta.add_text("\n- ")
-		_meta.push_meta(entry[1])
-		_meta.add_text(entry[0])
-		_meta.pop()
-		_meta.add_text("  " + entry[1])
+		parts.append("[url=%s]%s[/url]" % [entry[1], _escape(entry[0])])
+	if parts.is_empty():
+		return
+	_meta.append_text("\n" + "   •   ".join(parts))
+
+
+## Text that is safe to put inside a BBCode label.
+##
+## A description containing a '[' would otherwise be read as a tag and silently disappear, and
+## descriptions are arbitrary strings written by a payload author.
+func _escape(text: String) -> String:
+	return text.replace("[", "[lb]")
 
 
 func _is_in_registry(id: String) -> bool:
@@ -916,8 +999,11 @@ func _render_plan() -> void:
 		_plan_box.remove_child(child)
 		child.queue_free()
 
+	# No plan yet, so the block answers the same question from the declaration instead. The two
+	# are mutually exclusive on purpose: a plan and a target both say what will land where, and
+	# showing both invites the reading that they might disagree.
 	if _plan.is_empty():
-		_size_plan_block()
+		_render_targets()
 		_update_buttons()
 		return
 
@@ -926,7 +1012,6 @@ func _render_plan() -> void:
 		var failure := Label.new()
 		failure.text = "\n".join(problems)
 		_plan_box.add_child(failure)
-		_size_plan_block()
 		return
 
 	for fields in Backend.of(_plan, "PLANTOOL"):
@@ -948,24 +1033,7 @@ func _render_plan() -> void:
 		if fields.size() >= 2:
 			_plan_box.add_child(_plan_line("    %s -> %s" % [fields[0], fields[1]]))
 
-	_size_plan_block()
 	_update_buttons()
-
-
-## Give the plan block a height that matches its content, up to a cap.
-##
-## WHY NOT LET IT GROW FREELY
-## --------------------------
-## A plan is a log: a tool with forty files would push the difference between "verified" and
-## "not verified" off the bottom of the window, which is the one line the user has to read
-## before pressing Install. Below the cap the block is as tall as its lines and the window's own
-## scrollbar takes over; above it, the block scrolls itself. Horizontal scrolling is separate and
-## stays on, because a planned path is longer than the window.
-func _size_plan_block() -> void:
-	var lines := _plan_box.get_child_count()
-	var line_height := _plan_box.get_theme_default_font_size() + 6
-	var wanted := float(lines) * float(line_height) + 8.0
-	_plan_scroll.custom_minimum_size.y = minf(wanted, PLAN_MAX_HEIGHT)
 
 
 func _plan_line(text: String) -> Label:

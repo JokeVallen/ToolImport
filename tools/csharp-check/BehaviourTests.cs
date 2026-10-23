@@ -488,15 +488,17 @@ namespace CsharpCheck
             Check("a null needle matches", ImportToolWindow.Matches(tool, null));
             Check("the display name matches", ImportToolWindow.Matches(tool, "SharpJson"));
 
-            // Substring, not prefix: someone hunting the JSON library types "json".
-            Check("a substring matches anywhere", ImportToolWindow.Matches(tool, "json"));
+            // Prefix, not substring: typing the start of a name is what a user does, and
+            // "json" landing on "SharpJson" was the behaviour that made a search feel random.
+            Check("a prefix of the display name matches", ImportToolWindow.Matches(tool, "Sharp"));
+            Check("a substring in the middle does NOT match", !ImportToolWindow.Matches(tool, "json"));
             Check("case is ignored", ImportToolWindow.Matches(tool, "SHARPJSON"));
             Check("a non-match does not match", !ImportToolWindow.Matches(tool, "godot"));
 
-            // REGRESSION: the display name is the ONLY field searched. Searching the id
-            // made "s" return this tool, and it looked like a bug because the id -- the
-            // thing that actually matched -- is not shown anywhere in the list.
-            Check("the id is NOT searched", !ImportToolWindow.Matches(tool, "libs-sharp-json"));
+            // The id is searched as well, by prefix. A user who knows the package name types
+            // the package name, and until now that returned nothing.
+            Check("the id matches by prefix", ImportToolWindow.Matches(tool, "libs-sharp-json"));
+            Check("a prefix of the id matches", ImportToolWindow.Matches(tool, "libs-"));
             Check("tags are NOT searched by the text box", !ImportToolWindow.Matches(tool, "assembly"));
             Check("provides is NOT searched by the text box", !ImportToolWindow.Matches(tool, "serialization"));
         }
