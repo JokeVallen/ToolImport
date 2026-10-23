@@ -25,6 +25,7 @@ extends Window
 const Backend := preload("backend.gd")
 const Paths := preload("paths.gd")
 const SettingsWindow := preload("settings_window.gd")
+const UiStyle := preload("ui_style.gd")
 
 const ENGINE := "godot"
 
@@ -43,13 +44,6 @@ const FILTER_LABELS := [
 ## Width of the strip the collapsed list leaves behind, just wide enough for the expand button.
 const COLLAPSED_RAIL_WIDTH := 30
 
-## Button colours. The editor's own hover tint is subtle enough that on this window's background a
-## hovered button looked identical to an unhovered one, so each state gets an explicit colour.
-const BUTTON_NORMAL := Color(0.24, 0.25, 0.27)
-const BUTTON_HOVER := Color(0.33, 0.35, 0.38)
-const BUTTON_PRESSED := Color(0.18, 0.19, 0.21)
-const BUTTON_BORDER := Color(0.38, 0.40, 0.43)
-
 var _backend: Backend = null
 var _project_root := ""
 var _settings_window: Window = null
@@ -66,6 +60,7 @@ var _detail_panel: PanelContainer
 var _list: ItemList
 var _meta: RichTextLabel
 var _install_edit: LineEdit
+var _installs_header: RichTextLabel
 var _status: Label
 var _plan_box: VBoxContainer
 var _plan_scroll: ScrollContainer
@@ -157,13 +152,13 @@ func _build_ui() -> void:
 	var refresh_button := Button.new()
 	refresh_button.text = "Refresh"
 	refresh_button.pressed.connect(_on_refresh_pressed)
-	_style_button(refresh_button)
+	UiStyle.button(refresh_button)
 	toolbar.add_child(refresh_button)
 
 	var settings_button := Button.new()
 	settings_button.text = "Settings"
 	settings_button.pressed.connect(_on_settings_pressed)
-	_style_button(settings_button)
+	UiStyle.button(settings_button)
 	toolbar.add_child(settings_button)
 
 	toolbar.add_child(VSeparator.new())
@@ -202,7 +197,7 @@ func _build_ui() -> void:
 	for index in FILTER_LABELS.size():
 		filter_menu.add_item(FILTER_LABELS[index], index)
 	filter_menu.id_pressed.connect(_on_filter_chosen)
-	_style_button(_filter_button)
+	UiStyle.button(_filter_button)
 	_list_controls.add_child(_filter_button)
 
 	# The list can be folded away, because the detail pane is the part being read most of the time
@@ -212,7 +207,7 @@ func _build_ui() -> void:
 	_collapse_button.flat = false
 	_collapse_button.tooltip_text = "Hide the tool list"
 	_collapse_button.pressed.connect(_on_collapse_pressed)
-	_style_button(_collapse_button, 26)
+	UiStyle.button(_collapse_button, 26)
 	_list_controls.add_child(_collapse_button)
 
 	# A second row appears only for the modes that take a value, and it is filled from the listing
@@ -226,7 +221,7 @@ func _build_ui() -> void:
 	_value_button.flat = false
 	_value_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_value_button.get_popup().id_pressed.connect(_on_filter_value_chosen)
-	_style_button(_value_button)
+	UiStyle.button(_value_button)
 	_list_column.add_child(_value_button)
 
 	_list = ItemList.new()
@@ -270,9 +265,19 @@ func _build_ui() -> void:
 	_meta.add_theme_stylebox_override("normal", empty_style)
 	details.add_child(_meta)
 
-	# The Installs / Plan heading is drawn by the same rich text as the other section headers, so
-	# it is the same weight and colour as "Dependencies". A separate Label could only approximate
-	# it, and the plan lines below still need a widget of their own for horizontal scrolling.
+	# The Installs / Plan heading is a label using the SAME bold font the rich text uses for the
+	# other section headers, so it matches them in weight and colour while sitting tight above its
+	# lines: as rich text it inherited the paragraph spacing and left a wide gap under itself.
+	# A one-line rich text label rather than a Label: it uses the same font and bold weight as the
+	# headers above it, and its height is exactly one line - a Label with a font override measured
+	# 44 pixels tall for one line and left a wide gap under the heading.
+	_installs_header = RichTextLabel.new()
+	_installs_header.bbcode_enabled = true
+	_installs_header.fit_content = true
+	_installs_header.scroll_active = false
+	_installs_header.text = "[b]Installs[/b]"
+	_installs_header.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	details.add_child(_installs_header)
 
 	# Horizontal scrolling only: a planned path is longer than the window, and the vertical axis
 	# belongs to the pane, so this block is as tall as its lines.
@@ -318,8 +323,8 @@ func _build_ui() -> void:
 	var default_button := Button.new()
 	default_button.text = "Default"
 	default_button.pressed.connect(_on_default_pressed)
-	_style_button(browse_button)
-	_style_button(default_button)
+	UiStyle.button(browse_button)
+	UiStyle.button(default_button)
 	destination_row.add_child(_install_edit)
 	destination_row.add_child(browse_button)
 	destination_row.add_child(default_button)
@@ -335,9 +340,9 @@ func _build_ui() -> void:
 	_uninstall_button = Button.new()
 	_uninstall_button.text = "Uninstall"
 	_uninstall_button.pressed.connect(_on_uninstall_pressed)
-	_style_button(_verify_button)
-	_style_button(_install_button)
-	_style_button(_uninstall_button)
+	UiStyle.button(_verify_button)
+	UiStyle.button(_install_button)
+	UiStyle.button(_uninstall_button)
 	actions.add_child(_verify_button)
 	actions.add_child(_install_button)
 	actions.add_child(_uninstall_button)
@@ -361,35 +366,6 @@ func _label(text: String) -> Label:
 	label.text = text
 	return label
 
-
-## Give a button a frame and a hover state that can be seen against this window's background.
-##
-## WHY NOT THE THEME'S OWN BUTTONS
-## ------------------------------
-## The editor theme's button styles are built for panels, not for a floating window, and on this
-## background the hover tint was close enough to the normal one that a hovered control looked
-## exactly like an idle one. Every state is therefore drawn explicitly: the point of a control is
-## that a user can tell it is one before clicking it.
-func _style_button(button: Button, min_width: int = 0) -> void:
-	button.flat = false
-	button.custom_minimum_size = Vector2(min_width, 26)
-	button.add_theme_stylebox_override("normal", _button_box(BUTTON_NORMAL))
-	button.add_theme_stylebox_override("hover", _button_box(BUTTON_HOVER))
-	button.add_theme_stylebox_override("pressed", _button_box(BUTTON_PRESSED))
-	button.add_theme_stylebox_override("focus", _button_box(BUTTON_HOVER))
-
-
-func _button_box(colour: Color) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = colour
-	box.border_color = BUTTON_BORDER
-	box.set_border_width_all(1)
-	box.set_corner_radius_all(3)
-	box.content_margin_left = 8
-	box.content_margin_right = 8
-	box.content_margin_top = 5
-	box.content_margin_bottom = 5
-	return box
 
 
 ## Put the window in the middle of the screen, at a size that fits it.
@@ -749,6 +725,10 @@ func _filter_takes_value() -> bool:
 func _filter_value_options() -> PackedStringArray:
 	var values := {}
 	for fields in _tools:
+		# Only tools this engine can use: a value belonging to a tool that is never listed would
+		# filter to an empty list and read as a broken control.
+		if not _supports_engine(fields):
+			continue
 		if _filter == Filter.DEPENDS_ON:
 			values[fields[0]] = true
 			continue
@@ -975,6 +955,8 @@ func _render_empty(message: String) -> void:
 		_meta.append_text(message)
 	# No heading and no lines: this is the state before a tool is picked, and "Installs" over an
 	# empty block reads as a tool that installs nothing.
+	if _installs_header != null:
+		_installs_header.visible = false
 	if _plan_box != null:
 		for child in _plan_box.get_children():
 			_plan_box.remove_child(child)
@@ -1037,11 +1019,8 @@ func _render_detail() -> void:
 	# The default destination is a HINT inside the field, not a sentence above it: it describes
 	# what an empty field will do, and the field is exactly where that question is asked.
 	_install_edit.placeholder_text = _defaults_text()
-	# The heading is part of the rich text, so it has the same weight and colour as the headers
-	# above it. Its text says which of the two answers is below.
-	_meta.append_text("\n\n[b]%s[/b]" % ("Plan" if not _plan.is_empty() else "Installs"))
-	# The Installs block is the plan when there is one and the declared target otherwise; the two
-	# are never shown together, because they answer the same question.
+	# The heading names which of the two answers is below, and the block decides both its text and
+	# its lines so they cannot disagree.
 	_fill_installs()
 
 	var installed: String = str(_installed_versions.get(_selected_id, ""))
@@ -1322,6 +1301,11 @@ func _fill_installs() -> void:
 	for child in _plan_box.get_children():
 		_plan_box.remove_child(child)
 		child.queue_free()
+
+	# The heading names what is actually below it: after verifying, the block IS the plan, and a
+	# heading that still said "Installs" left the user looking for the plan they had just made.
+	_installs_header.text = "[b]Installs[/b]" if _plan.is_empty() else "[b]Plan[/b]"
+	_installs_header.visible = true
 
 	# No plan yet, so the block answers the same question from the declaration instead. The two
 	# are mutually exclusive on purpose: a plan and a target both say what will land where, and

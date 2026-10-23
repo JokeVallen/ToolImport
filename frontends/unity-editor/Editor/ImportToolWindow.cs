@@ -637,6 +637,13 @@ namespace ToolImport.Editor
             var visible = new List<AvailableTool>();
             foreach (AvailableTool tool in tools)
             {
+                // A tool this engine cannot use is not a candidate at all, so it never reaches the
+                // list. The Godot front end has always worked this way, and it is the right
+                // answer: "installs only into Godot" is a package this window can do nothing
+                // with, and a row that cannot be acted on is noise dressed up as choice. The
+                // "This engine" filter stays for parity, but is now a tautology.
+                if (!tool.Supports(EngineName)) continue;
+
                 if (filter == ToolFilter.Installed && !installedIds.Contains(tool.Id)) continue;
                 if (filter == ToolFilter.NotInstalled && installedIds.Contains(tool.Id)) continue;
                 if (filter == ToolFilter.ThisEngine && !tool.Supports(EngineName)) continue;
@@ -730,6 +737,10 @@ namespace ToolImport.Editor
             var values = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (AvailableTool tool in tools)
             {
+                // Only tools this engine can use: a value that belongs to a tool which is never
+                // listed would filter to an empty list and read as a broken control.
+                if (!tool.Supports(EngineName)) continue;
+
                 string source;
                 switch (filter)
                 {
@@ -906,11 +917,14 @@ namespace ToolImport.Editor
             List<AvailableTool> visible = VisibleTools();
             if (visible.Count == 0)
             {
-                EditorGUILayout.HelpBox(
-                    tools.Count == 0
-                        ? "The registry listed no tools."
-                        : "No tool matches the current search or filter.",
-                    MessageType.None);
+                // Three different situations, three different sentences. "Nothing matched" is
+                // unhelpful when the real answer is "this registry has nothing for this engine".
+                string message = tools.Count == 0
+                    ? "The registry listed no tools."
+                    : tools.TrueForAll(t => !t.Supports(EngineName))
+                        ? $"No tool in this registry supports {EngineName} yet."
+                        : "No tool matches the current search or filter.";
+                EditorGUILayout.HelpBox(message, MessageType.None);
             }
 
             foreach (AvailableTool tool in visible)

@@ -9,6 +9,42 @@ of the tool are its own; the metadata format it reads is versioned separately by
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
+## [1.2.0] — 2026-10-23
+
+### Changed
+
+- **Both front ends now describe a tool in the same order**: display name, package id, a small
+  italic facts line (version · type · author · release date), the links, then the description and
+  its sections. The Godot pane had no description at all, and its links were not links.
+- **The detail pane's scroll region ends above "Install Into".** The destination field and the
+  three buttons stay put, so a long description can no longer push them out of reach.
+- **"Installs" and "Plan" are one block.** With a plan it shows the plan; without one it shows what
+  the manifest declares it will install. The two never appear together, because they answer the
+  same question. After verifying, the heading reads "Plan".
+- **The filter dropdown offers eight modes on both front ends**: All / Installed / Not installed /
+  This engine / Tag is / Provides / Injects / Depends on. The four that take a value get a second
+  dropdown, filled from the listing itself and defaulting to the first value that leaves a result.
+- **Search is a prefix match** on the display name and the package id. Typing `json` no longer
+  lands on `SharpJson`; typing a package name now finds it.
+- **Unity no longer lists tools this engine cannot use.** A Godot-only package cannot be installed
+  from the Unity window and cannot be used there, so listing it only made the list longer. The
+  Godot front end has always worked this way.
+- **The version menu marks the installed release at the front of its row** (`[installed] 1.1.0`)
+  instead of trailing a suffix the eye reaches last.
+
+### Fixed
+
+- **The Godot filter and collapse controls no longer look like labels.** Flat buttons on the
+  window background read as text, and the second-level dropdown was effectively invisible. Every
+  button in both windows now draws an explicit resting, hover and pressed state.
+- **Collapsing the list actually gives its width to the detail pane**, and expanding restores the
+  width the splitter was dragged to rather than the default.
+- **Changing a filter no longer leaves the pane showing the previous tool or "No tool matches".**
+  A request made while the backend was busy used to be dropped; requests now queue, keeping only
+  the latest. A detail answer that arrives after the filter hid its tool is ignored.
+- **Install and uninstall finish with their own status message again** instead of "Ready." - the
+  re-render was overwriting the message that had just been set.
+
 ## [1.1.1] — 2026-10-23
 
 ### Fixed

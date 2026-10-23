@@ -13,6 +13,7 @@ extends Window
 signal saved
 
 const Paths := preload("paths.gd")
+const UiStyle := preload("ui_style.gd")
 
 var _registry_edit: LineEdit
 var _cli_edit: LineEdit
@@ -133,12 +134,15 @@ func _build() -> void:
 	var save_button := Button.new()
 	save_button.text = "Save"
 	save_button.pressed.connect(_on_save)
+	UiStyle.button(save_button)
 	var clear_button := Button.new()
 	clear_button.text = "Clear all"
 	clear_button.pressed.connect(_on_clear)
+	UiStyle.button(clear_button)
 	var close_button := Button.new()
 	close_button.text = "Close"
 	close_button.pressed.connect(_on_close)
+	UiStyle.button(close_button)
 
 	buttons.add_child(save_button)
 	buttons.add_child(clear_button)
@@ -162,6 +166,7 @@ func _path_row(edit: LineEdit, mode: int, filters: PackedStringArray, tooltip: S
 	var browse := Button.new()
 	browse.text = "..."
 	browse.pressed.connect(func() -> void: _pick(edit, mode, filters))
+	UiStyle.button(browse, 32)
 
 	row.add_child(edit)
 	row.add_child(browse)
