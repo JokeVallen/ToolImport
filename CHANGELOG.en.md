@@ -9,6 +9,19 @@ of the tool are its own; the metadata format it reads is versioned separately by
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
+## [1.1.1] — 2026-10-23
+
+### Fixed
+
+- **The Godot window opened empty.** The list and the detail pane were added to the window instead
+  of to the column that holds the toolbar, so they were laid out at the origin with no size: the
+  window showed its toolbar and its status line with nothing between them.
+- **It opened in the corner with its title bar off-screen**, which left it impossible to drag until
+  it had been resized. A Window is shown as soon as it enters the tree, at the default position, so
+  the placement code never ran; it now stays hidden until it has been sized and centred.
+- **The Settings window was too small to show its own contents**, so it had to be stretched before
+  anything could be read. Its size is now set before it is shown, and it is centred the same way.
+
 ## [1.1.0] — 2026-10-23
 
 ### Changed

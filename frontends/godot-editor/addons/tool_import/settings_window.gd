@@ -23,10 +23,43 @@ var _resolved: RichTextLabel
 func _ready() -> void:
 	title = "Tool Import Settings"
 	min_size = Vector2i(560, 300)
-	size = Vector2i(760, 360)
 	close_requested.connect(_on_close)
 	_build()
 	_load()
+	# Sized from the content, not guessed: the note and the "In effect" block are as tall as the
+	# strings inside them, and a fixed height cut the Save row off - which is the one row the user
+	# came here for.
+	size = _wanted_size()
+	# A Window is shown the moment it enters the tree, at the default position; staying hidden
+	# until show_centered() places it is what keeps it out of the corner.
+	visible = false
+
+
+## Show the window centred on the screen, at its content-derived size.
+func show_centered() -> void:
+	if not visible:
+		popup_centered(size)
+		_place_on_screen()
+
+
+func _wanted_size() -> Vector2i:
+	# Fixed, not derived from get_contents_minimum_size: an autowrapping Label reports a minimum
+	# height for its CURRENT width, and measuring before the window has a width makes the answer
+	# meaningless - it reported 1344 pixels tall and the window opened taller than the screen.
+	# Three fields, a note and a three-line summary fit comfortably in this.
+	return Vector2i(820, 520)
+
+
+## Same placement rule as the main window: centre it, using the screen when the window is native.
+func _place_on_screen() -> void:
+	if get_window() != self:
+		return
+	var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+	var wanted := _wanted_size()
+	wanted.x = mini(wanted.x, usable.size.x - 80)
+	wanted.y = mini(wanted.y, usable.size.y - 80)
+	size = wanted
+	position = usable.position + (usable.size - wanted) / 2
 
 
 func _build() -> void:

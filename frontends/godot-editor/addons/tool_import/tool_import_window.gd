@@ -28,6 +28,10 @@ const SettingsWindow := preload("settings_window.gd")
 
 const ENGINE := "godot"
 
+## The size the window opens at. Wide enough for the list plus a full detail pane, and short
+## enough to fit a 1080p screen with room left for the editor.
+const WINDOW_SIZE := Vector2i(1000, 660)
+
 ## How tall the plan block may get before it scrolls itself. See _size_plan_block.
 const PLAN_MAX_HEIGHT := 220.0
 
@@ -64,7 +68,12 @@ var _first_open := true
 func _ready() -> void:
 	title = "Tool Import"
 	min_size = Vector2i(720, 480)
-	size = Vector2i(980, 620)
+	size = WINDOW_SIZE
+	# A Window becomes visible the moment it enters the tree, at the default position (0, 0) and
+	# whatever size it managed to compute - which is how it first appeared in the corner with its
+	# title bar off-screen. Staying hidden until open() places it is what makes the placement
+	# below the first thing the user sees.
+	visible = false
 	close_requested.connect(hide)
 
 	_project_root = Paths.project_root()
@@ -77,7 +86,8 @@ func _ready() -> void:
 ## Called by the plugin before the window is shown.
 func open() -> void:
 	if not visible:
-		popup_centered(size)
+		popup_centered(WINDOW_SIZE)
+		_place_on_screen()
 	_refresh_registry_row()
 	_refresh()
 
@@ -134,7 +144,10 @@ func _build_ui() -> void:
 
 	var split := HSplitContainer.new()
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	add_child(split)
+	# Into `root`, not into the window: everything else is built under root, and a sibling of it
+	# is laid out at the origin with no size of its own - which is how the window ended up showing
+	# the toolbar and the status line with an empty body between them.
+	root.add_child(split)
 
 	_list = ItemList.new()
 	_list.custom_minimum_size = Vector2(200, 0)
@@ -235,6 +248,35 @@ func _label(text: String) -> Label:
 	return label
 
 
+## Put the window in the middle of the screen, at a size that fits it.
+##
+## `popup_centered` centres against the PARENT VIEWPORT, and in the editor that placed the window
+## at the top-left corner with its title bar above the screen edge - the one place a window cannot
+## be dragged from, so it could only be moved after resizing it. A native window can be placed
+## directly; an embedded one keeps Godot's own placement, because its coordinates are relative to
+## the viewport rather than to the screen.
+func _place_on_screen() -> void:
+	if get_window() != self:
+		return
+	var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+	var wanted := _preferred_size(usable)
+	size = wanted
+	position = usable.position + (usable.size - wanted) / 2
+
+
+## A size that leaves the editor behind it, in the units this window is measured in.
+##
+## Fractions of the usable area rather than a fixed pixel size: Godot's window coordinates and the
+## screen's physical pixels do not have to agree (a scaled display makes them differ by a third or
+## more), so a fixed 1000x660 landed as a 681x477 window on a 2560x1368 desktop - considerably
+## smaller than the pane needs. A proportion is right at any scale.
+func _preferred_size(usable: Rect2i) -> Vector2i:
+	return Vector2i(
+		clampi(int(usable.size.x * 0.6), 900, 1500),
+		clampi(int(usable.size.y * 0.72), 600, 1000),
+	)
+
+
 func _disable_auto_translation(node: Node) -> void:
 	if node.get("auto_translate_mode") != null:
 		node.set("auto_translate_mode", 2)  # AUTO_TRANSLATE_MODE_DISABLED
@@ -266,7 +308,7 @@ func _on_settings_pressed() -> void:
 			_refresh()
 		)
 		_disable_auto_translation(_settings_window)
-	_settings_window.popup_centered()
+	_settings_window.show_centered()
 
 
 func _engine_version() -> String:
