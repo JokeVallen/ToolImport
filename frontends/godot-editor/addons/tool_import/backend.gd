@@ -119,11 +119,17 @@ static func unescape(value: String) -> String:
 	return out
 
 
-static func of(records: Array, type: String) -> Array:
-	var found: Array = []
+## Every record of one type, each as its field list.
+##
+## The return is a TYPED array on purpose. Without it the caller gets a Variant per element, so
+## `var id := fields[0]` has nothing to infer from and refuses to compile - which is what the
+## first draft of the dock did, on every loop.
+static func of(records: Array, type: String) -> Array[PackedStringArray]:
+	var found: Array[PackedStringArray] = []
 	for record in records:
 		if record["type"] == type:
-			found.append(record["fields"])
+			var fields: PackedStringArray = record["fields"]
+			found.append(fields)
 	return found
 
 

@@ -47,7 +47,7 @@ frontends/
 | 引擎 | 位置 | 状态 |
 | --- | --- | --- |
 | Unity 2020.3+ | `frontends/unity-editor/Editor` | 已写完并过类型检查；**从未在真实编辑器里跑过** |
-| Godot 4.2+ | `frontends/godot-editor/addons/tool_import` | 已写完；**从未在真实编辑器里加载过** |
+| Godot 4.x | `frontends/godot-editor/addons/tool_import` | 在 4.7.2 上编译并加载通过（`npm run check:godot`）；界面尚未逐项点过 |
 
 两者都是调用本 CLI（`--records`）的停靠面板，先显示计划、确认后才写盘。它们都不含安装逻辑：
 版本、落点与回执由后端决定，前端只呈现。

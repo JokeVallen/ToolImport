@@ -9,6 +9,24 @@ of the tool are its own; the metadata format it reads is versioned separately by
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
+## [1.0.1] — 2026-10-23
+
+### Fixed
+
+- **The Godot addon did not compile.** `EditorSettings.get_setting(key, default)` takes one
+  argument, and several `:=` declarations had no type to infer from (the element of an untyped
+  array is a `Variant`). Both were written on a machine with no Godot, so nothing could have
+  caught them before a user opened the editor and read the parse errors. `Backend.of()` now
+  returns a typed array, which is what the loops needed, and settings are read through one
+  wrapper that knows the real signature.
+
+### Added
+
+- **`npm run check:godot`** compiles the addon with a real Godot and then loads the editor with
+  the plugin enabled. It finds the binary automatically (or takes `--godot` / `GODOT_BIN`) and
+  skips with a message when none is installed. This is the missing compiler, not a nicety: the
+  front end had no way to be checked at all, which is why 1.0.0 shipped broken.
+
 ## [1.0.0] — 2026-10-23
 
 ### About this file

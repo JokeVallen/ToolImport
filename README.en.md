@@ -68,7 +68,7 @@ output records instead of in-memory objects.
 | Engine | Where | State |
 | --- | --- | --- |
 | Unity 2020.3+ | `frontends/unity-editor/Editor` | written and type-checked; **never run in a real editor** on this machine |
-| Godot 4.2+ | `frontends/godot-editor/addons/tool_import` | written; **never loaded in a real editor** on this machine |
+| Godot 4.x | `frontends/godot-editor/addons/tool_import` | compiles and loads in 4.7.2 (`npm run check:godot`); no UI click-through yet |
 
 Both are docks that call this CLI with `--records`, show the plan, and write only after the plan
 is confirmed. Neither contains install logic: the backend decides versions, paths and receipts,

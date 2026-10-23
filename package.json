@@ -1,6 +1,6 @@
 {
   "name": "toolimport",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Engine-agnostic backend for the ToolRegistry import tool: parses the .yaml format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
@@ -18,6 +18,7 @@
   "scripts": {
     "test": "node tools/check-tracked.mjs && node --test \"packages/utool-core/test/*.test.js\" \"apps/cli/test/*.test.js\"",
     "check:csharp": "node tools/csharp-check.mjs",
+    "check:godot": "node tools/godot-check.mjs",
     "check:tracked": "node tools/check-tracked.mjs",
     "cli": "node apps/cli/bin/utool.js",
     "validate": "node apps/cli/bin/utool.js validate ../ToolRegistry"

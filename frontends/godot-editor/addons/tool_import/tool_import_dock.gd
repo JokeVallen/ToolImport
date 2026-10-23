@@ -42,7 +42,7 @@ var _verify_button: Button
 var _install_button: Button
 var _uninstall_button: Button
 
-var _tools: Array = []
+var _tools: Array[PackedStringArray] = []
 var _versions := {}
 var _installed := {}
 var _installed_versions := {}
@@ -204,11 +204,23 @@ func _label(text: String) -> Label:
 # ---------------------------------------------------------------------------
 
 func _load_settings() -> void:
-	_registry_edit.text = str(_settings.get_setting(SETTING_REGISTRY, ""))
-	_cli_edit.text = str(_settings.get_setting(SETTING_CLI, ""))
-	_node_edit.text = str(_settings.get_setting(SETTING_NODE, "node"))
+	_registry_edit.text = _setting(SETTING_REGISTRY, "")
+	_cli_edit.text = _setting(SETTING_CLI, "")
+	_node_edit.text = _setting(SETTING_NODE, "node")
 	_registry_edit.text_submitted.connect(func(_t: String) -> void: _on_refresh_pressed())
 	_cli_edit.text_submitted.connect(func(_t: String) -> void: _on_refresh_pressed())
+
+
+## Read one editor setting, with a fallback.
+##
+## `EditorSettings.get_setting` takes the key and nothing else. Passing a default was a mistake
+## that only a compiler could catch, and there was no compiler here - so the wrapper also keeps
+## the default-vs-absent question in ONE place instead of at three call sites.
+func _setting(key: String, fallback: String) -> String:
+	if not _settings.has_setting(key):
+		return fallback
+	var value: Variant = _settings.get_setting(key)
+	return fallback if value == null else str(value)
 
 
 func _persist_settings() -> void:
@@ -326,16 +338,20 @@ func _refresh() -> void:
 
 
 func _on_list_ready(records: Array) -> void:
-	_tools = []
+	# `clear()` rather than `[]`: the array is typed, and an untyped literal is not the same
+	# thing to assign.
+	_tools.clear()
 	_versions = {}
 
+	# `Backend.of` returns a typed array, so an element is a PackedStringArray and the fields
+	# below have types to infer from.
 	for fields in Backend.of(records, "TOOL"):
 		_tools.append(fields)
 
 	for fields in Backend.of(records, "VERSIONS"):
 		if fields.size() < 2:
 			continue
-		var id := fields[0]
+		var id: String = fields[0]
 		if not _versions.has(id):
 			_versions[id] = []
 		_versions[id].append({
@@ -723,18 +739,20 @@ func _on_browse_pressed() -> void:
 	dialog.title = "Install into (a folder inside this project)"
 
 	dialog.dir_selected.connect(func(directory: String) -> void:
-		var relative := _project_relative(directory)
+		# Typed as Variant: "not in this project" is null, which a String cannot express.
+		var relative: Variant = _project_relative(directory)
 		if relative == null:
 			_status.text = "That folder is outside this project. The destination is project-relative."
 			return
-		_install_edit.text = relative
-		_on_destination_typed(relative)
-		if relative == "":
+		var chosen := str(relative)
+		_install_edit.text = chosen
+		_on_destination_typed(chosen)
+		if chosen == "":
 			_status.text = "Installing where the manifest declares."
-		elif not relative.begins_with("addons/") and relative != "addons":
+		elif not chosen.begins_with("addons/") and chosen != "addons":
 			_status.text = "Note: Godot only loads addons under res://addons."
 		else:
-			_status.text = "Install directory set to " + relative + "."
+			_status.text = "Install directory set to " + chosen + "."
 	)
 	dialog.canceled.connect(func() -> void: dialog.queue_free())
 	dialog.confirmed.connect(func() -> void: dialog.queue_free())

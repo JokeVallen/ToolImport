@@ -78,3 +78,9 @@ probe-*.js
 # --- release artifacts -------------------------------------------------------
 # Built by tools/make-release.mjs from a tag; never committed.
 dist/
+
+# --- csharp-check scratch -----------------------------------------------------
+# The harness copies the front-end sources here before compiling them; it is an
+# output directory, so a bare generated/ would be safe as well, but it is spelled
+# out to keep the next reader from having to check.
+tools/csharp-check/generated/
