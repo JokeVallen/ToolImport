@@ -1,6 +1,6 @@
 {
   "name": "toolimport",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Engine-agnostic backend for the ToolRegistry import tool: parses the .yaml format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",

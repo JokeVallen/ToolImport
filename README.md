@@ -42,6 +42,20 @@ frontends/
 
 代价是多了一层进程边界：前端通过**输出记录**与后端通信，而不是内存中的对象。
 
+## 前端
+
+| 引擎 | 位置 | 状态 |
+| --- | --- | --- |
+| Unity 2020.3+ | `frontends/unity-editor/Editor` | 已写完并过类型检查；**从未在真实编辑器里跑过** |
+| Godot 4.2+ | `frontends/godot-editor/addons/tool_import` | 已写完；**从未在真实编辑器里加载过** |
+
+两者都是调用本 CLI（`--records`）的停靠面板，先显示计划、确认后才写盘。它们都不含安装逻辑：
+版本、落点与回执由后端决定，前端只呈现。
+
+Godot 插件就是一个普通 addons 目录——把 `frontends/godot-editor/addons/tool_import` 复制到工程的
+`res://addons/`，在 **项目 → 项目设置 → 插件** 里启用，然后在面板里填注册库与 CLI 路径。引擎版本以
+`--host-godot` 传入，CLI 也可以自己从 `project.godot` 读出来。
+
 ## 快速开始
 
 ```pwsh

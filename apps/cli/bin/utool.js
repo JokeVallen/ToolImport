@@ -38,6 +38,18 @@ import {
 import { createRequirementChecker, loadAdapters } from '../lib/adapters.js';
 import { parseArgs } from '../lib/args.js';
 import { writeIndexFile } from '../lib/write-index.js';
+
+/**
+ * The CLI's own version, read from its package.json rather than repeated here.
+ *
+ * A literal was one more thing to remember at release time, and the release IS the moment it
+ * matters: a tarball whose `--version` disagreed with its package would be a version reported
+ * by the wrong number. `npm pack` rewrites the package next to this file, so this reads the
+ * version the package actually ships.
+ */
+const CLI_VERSION = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
 import { detectHost } from '../lib/host.js';
 import * as out from '../lib/output.js';
 import * as rec from '../lib/records.js';
@@ -99,6 +111,8 @@ Options
                           it to install one cross-engine tool into two engines
   --host-unity <ver>      host Unity version, e.g. 2021.3.5f1 (enables the gate)
   --host-dotnet <ver>     host .NET API level, e.g. 4.6 or 6.0 (enables the gate)
+  --host-godot <ver>      host Godot version, e.g. 4.2.1 (enables the gate); read from
+                          project.godot when a --project is given
   --auto-provider         when a tool injects a capability nothing in the plan
                           provides, select a provider for it. Off by default:
                           silently adding a tool is worse than explaining the gap
@@ -143,7 +157,7 @@ async function main(argv) {
   // `--version <v>` silently did the opposite of what it says. Only the boolean is the
   // CLI's own version; a string is a pin, handled where tools are resolved.
   if (flags.version === true) {
-    process.stdout.write('utool 0.1.0\n');
+    process.stdout.write(`utool ${CLI_VERSION}\n`);
     return EXIT.OK;
   }
   if (!command) {
@@ -981,9 +995,19 @@ async function buildPlan(source, requested, flags, adapters, host) {
   // Never write prose in records mode: stdout must stay machine-readable.
   if (!flags.quiet && !flags.json && !inRecords(flags)) {
     if (host) {
-      out.line(`host: Unity ${host.unityVersion ?? '(unknown)'}, .NET ${host.dotNetVersion ?? '(unknown)'}`);
+      // Only the declared facts are printed: an engine the caller did not name is reported
+      // as unknown rather than as a floor that was checked and passed.
+      const facts = [
+        host.unityVersion ? `Unity ${host.unityVersion}` : null,
+        host.dotNetVersion ? `.NET ${host.dotNetVersion}` : null,
+        host.godotVersion ? `Godot ${host.godotVersion}` : null,
+      ].filter(Boolean);
+      out.line(facts.length > 0 ? `host: ${facts.join(', ')}` : 'host: declared, but empty');
     } else {
-      out.line('host: not declared, platform floors are not enforced (pass --host-unity/--host-dotnet)');
+      out.line(
+        'host: not declared, platform floors are not enforced ' +
+          '(pass --host-unity/--host-dotnet/--host-godot)',
+      );
     }
   }
 
@@ -1154,7 +1178,7 @@ async function prepareAdapters(flags) {
     }
   }
 
-  const host = flags.hostUnity || flags.hostDotnet ? detectHost(flags) : undefined;
+  const host = flags.hostUnity || flags.hostDotnet || flags.hostGodot ? detectHost(flags) : undefined;
 
   // Only engines with an adapter can contribute a target, so the list handed to the
   // resolver excludes the unavailable ones. Their targets are then reported as

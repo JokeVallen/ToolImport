@@ -40,6 +40,7 @@ const KEY_ALIASES = {
   'write-index': 'writeIndex',
   'host-unity': 'hostUnity',
   'host-dotnet': 'hostDotnet',
+  'host-godot': 'hostGodot',
   'depends-on': 'dependsOn',
   // `--engine` already means "the engine to install into", which is a different question
   // from "tools that support this engine". Reusing it would make `list --engine godot`

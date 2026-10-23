@@ -9,13 +9,13 @@ of the tool are its own; the metadata format it reads is versioned separately by
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
-## [Unreleased]
+## [1.0.0] — 2026-10-23
 
 ### About this file
 
-The work below happened in one continuous push that built the tool and moved the
-metadata format to `formatVersion 2` at the same time, so the entries are grouped by
-area rather than by release date. Nothing here has been published.
+This is the first release. The work below happened in one continuous push that built the tool
+and moved the metadata format to `formatVersion 2` (and then 3) at the same time, so the entries
+are grouped by area rather than by release date, and everything listed here ships in `1.0.0`.
 
 ## Install destination, and what a moved tool looks like
 

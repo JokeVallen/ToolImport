@@ -63,6 +63,22 @@ that says which engines a build can serve.
 The cost is a process boundary: the front end talks to the backend through
 output records instead of in-memory objects.
 
+## Front ends
+
+| Engine | Where | State |
+| --- | --- | --- |
+| Unity 2020.3+ | `frontends/unity-editor/Editor` | written and type-checked; **never run in a real editor** on this machine |
+| Godot 4.2+ | `frontends/godot-editor/addons/tool_import` | written; **never loaded in a real editor** on this machine |
+
+Both are docks that call this CLI with `--records`, show the plan, and write only after the plan
+is confirmed. Neither contains install logic: the backend decides versions, paths and receipts,
+and the front end displays what it decided.
+
+The Godot addon is a normal addons folder - copy `frontends/godot-editor/addons/tool_import` into
+a project's `res://addons/`, enable it in **Project → Project Settings → Plugins**, then fill in
+the registry and CLI paths in the dock. The engine version is passed as `--host-godot`, and can
+also be read from `project.godot` by the CLI itself.
+
 ## Getting started
 
 ```pwsh
