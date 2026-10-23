@@ -1,6 +1,6 @@
 {
   "name": "@toolimport/utool-core",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Engine-agnostic core: .yaml parsing, registry validation, dependency resolution, artifact verification, installation and receipts.",

@@ -47,14 +47,15 @@ frontends/
 | 引擎 | 位置 | 状态 |
 | --- | --- | --- |
 | Unity 2020.3+ | `frontends/unity-editor/Editor` | 已写完并过类型检查；**从未在真实编辑器里跑过** |
-| Godot 4.x | `frontends/godot-editor/addons/tool_import` | 在 4.7.2 上编译并加载通过（`npm run check:godot`）；界面尚未逐项点过 |
+| Godot 4.x | `frontends/godot-editor/addons/tool_import` | 浮动窗口 + 设置窗口；在 4.7.2 上编译并加载通过（`npm run check:godot`）；界面尚未逐项点过 |
 
-两者都是调用本 CLI（`--records`）的停靠面板，先显示计划、确认后才写盘。它们都不含安装逻辑：
+两者都从菜单打开一个窗口，配置都在各自设置窗口里，都先显示计划、确认后才写盘。它们都不含安装逻辑：
 版本、落点与回执由后端决定，前端只呈现。
 
 Godot 插件就是一个普通 addons 目录——把 `frontends/godot-editor/addons/tool_import` 复制到工程的
-`res://addons/`，在 **项目 → 项目设置 → 插件** 里启用，然后在面板里填注册库与 CLI 路径。引擎版本以
-`--host-godot` 传入，CLI 也可以自己从 `project.godot` 读出来。
+`res://addons/`，在 **项目 → 项目设置 → 插件** 里启用，然后打开 **项目 → 工具 → Tool Import**。
+几个仓库并排放时**不需要任何配置**：注册库与 CLI 由从工程向上查找得到；设置窗口、`UTOOL_REGISTRY`、
+`UTOOL_CLI`、`UTOOL_NODE` 依次可以覆盖它。
 
 ## 快速开始
 

@@ -68,16 +68,17 @@ output records instead of in-memory objects.
 | Engine | Where | State |
 | --- | --- | --- |
 | Unity 2020.3+ | `frontends/unity-editor/Editor` | written and type-checked; **never run in a real editor** on this machine |
-| Godot 4.x | `frontends/godot-editor/addons/tool_import` | compiles and loads in 4.7.2 (`npm run check:godot`); no UI click-through yet |
+| Godot 4.x | `frontends/godot-editor/addons/tool_import` | window plus a Settings window; compiles and loads in 4.7.2 (`npm run check:godot`); click-through still unverified |
 
-Both are docks that call this CLI with `--records`, show the plan, and write only after the plan
-is confirmed. Neither contains install logic: the backend decides versions, paths and receipts,
-and the front end displays what it decided.
+Both are reached from a menu and open a window, and both keep their configuration in a Settings
+window. Neither contains install logic: the backend decides versions, paths and receipts, and the
+front end displays what it decided.
 
 The Godot addon is a normal addons folder - copy `frontends/godot-editor/addons/tool_import` into
-a project's `res://addons/`, enable it in **Project → Project Settings → Plugins**, then fill in
-the registry and CLI paths in the dock. The engine version is passed as `--host-godot`, and can
-also be read from `project.godot` by the CLI itself.
+a project's `res://addons/`, enable it in **Project → Project Settings → Plugins**, then open
+**Project → Tools → Tool Import**. Nothing needs configuring when the checkouts sit side by side:
+the registry and the CLI are found by walking up from the project, and the Settings window,
+`UTOOL_REGISTRY` / `UTOOL_CLI` / `UTOOL_NODE` override that, in that order.
 
 ## Getting started
 

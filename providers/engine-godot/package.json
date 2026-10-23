@@ -1,6 +1,6 @@
 {
   "name": "@toolimport/provider-engine-godot",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Godot engine adapter: Godot version comparison and the requirement keys it owns. Contributes no container handler, because Godot addons are ordinary archives the core already opens.",

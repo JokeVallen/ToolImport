@@ -9,6 +9,30 @@ of the tool are its own; the metadata format it reads is versioned separately by
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
+## [1.1.0] — 2026-10-23
+
+### Changed
+
+- **The Godot front end is a floating window opened from Project > Tools**, not a dock. It is the
+  same shape as the Unity one - a menu entry, a window, a Settings window - because moving between
+  the two editors should not mean learning two designs.
+- **Configuration moved out of the main window.** A Settings window holds the registry, the CLI and
+  the Node executable, and shows what the three values currently RESOLVE to: an empty field means
+  "the automatic one", and only the resolved value says which one that is.
+- **Resolution order now matches Unity exactly**: the settings window, then `UTOOL_REGISTRY` /
+  `UTOOL_CLI` / `UTOOL_NODE`, then a sibling checkout found by walking up from the project, then the
+  published registry URL or `node` on PATH. A workspace with the checkouts side by side needs no
+  configuration at all.
+- **A first run with no CLI found opens Settings by itself**, instead of leaving a message the user
+  has no way to act on.
+- The toolbar is Unity's: registry leaf name (full value on hover), Refresh, Settings, search.
+
+### Fixed
+
+- **The plan block no longer runs to the bottom of the window.** It is as tall as its lines up to a
+  cap, then scrolls itself; a forty-file plan used to push the verified / not-verified line out of
+  sight.
+
 ## [1.0.2] — 2026-10-23
 
 ### Fixed
@@ -21,9 +45,9 @@ of the tool are its own; the metadata format it reads is versioned separately by
 - **A verified plan was reported as not verified.** The `ok` flag lives in the `PLAN` record
   (`PLAN tools 1 bytes 1047 ok true dryRun false`), not in `RESULT`, and only `RESULT` was read.
 - **Half of the pane was translated and half was not.** Godot 4.4+ translates a Control's text
-  through the editor's own catalogue: `Node` became 节点 and `Install` became 安装 while `Registry`
-  stayed English. Translation is now off for these controls (and the call is guarded, so older 4.x
-  - which does not translate them - is unaffected).
+  through the editor's own catalogue: `Node` was shown as its Chinese word and `Install` as its
+  Chinese word while `Registry` stayed English. Translation is now off for these controls (and the
+  call is guarded, so older 4.x - which does not translate them - is unaffected).
 
 ### Changed
 

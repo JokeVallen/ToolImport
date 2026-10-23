@@ -1,36 +1,41 @@
 @tool
-extends VBoxContainer
+extends Window
 
-## The Tool Import dock: pick a tool, read what it needs, verify a plan, install it.
+## The Tool Import window: pick a tool, read what it needs, verify a plan, install it.
 ##
-## WHAT THIS PANE IS FOR
-## ---------------------
-## Everything that decides WHAT gets written lives in the Node backend. This dock chooses a tool
-## and a release, shows the plan the backend produced, and asks for confirmation. It never decides
-## an install path, a version or a dependency: it displays the backend's answer, which is the same
-## answer the command line gives.
+## WHAT THIS WINDOW IS FOR
+## -----------------------
+## Everything that decides WHAT gets written lives in the Node backend. This window chooses a
+## tool and a release, shows the plan the backend produced, and asks for confirmation. It never
+## decides an install path, a version or a dependency: it displays the backend's answer, which is
+## the same answer the command line gives.
 ##
 ## WHY IT RUNS THE CLI INSTEAD OF REIMPLEMENTING IT
 ## -----------------------------------------------
 ## The rules - `formatVersion 3`, content roots, `--into`, receipts, the requirement gates - are
 ## one implementation with tests. A GDScript copy would be a second implementation of the same
 ## rules, and the two would disagree at the worst moment: when writing files into a project.
+##
+## WHY IT FLOATS INSTEAD OF DOCKING
+## --------------------------------
+## Installing a tool is a task with a beginning and an end, not a panel to keep in view while
+## editing. A dock competes with the inspectors for width and stays open after the job is done;
+## the Unity front end is a window too, and this one is opened from Project > Tools.
 
 const Backend := preload("backend.gd")
-
-const SETTING_REGISTRY := "tool_import/registry_path"
-const SETTING_CLI := "tool_import/cli_path"
-const SETTING_NODE := "tool_import/node_path"
+const Paths := preload("paths.gd")
+const SettingsWindow := preload("settings_window.gd")
 
 const ENGINE := "godot"
 
-var _backend: Backend = null
-var _settings: EditorSettings = null
-var _project_root := ""
+## How tall the plan block may get before it scrolls itself. See _size_plan_block.
+const PLAN_MAX_HEIGHT := 220.0
 
-var _registry_edit: LineEdit
-var _cli_edit: LineEdit
-var _node_edit: LineEdit
+var _backend: Backend = null
+var _project_root := ""
+var _settings_window: Window = null
+
+var _registry_label: Label
 var _search_edit: LineEdit
 var _list: ItemList
 var _meta: RichTextLabel
@@ -38,6 +43,7 @@ var _install_edit: LineEdit
 var _defaults_label: Label
 var _status: Label
 var _plan_box: VBoxContainer
+var _plan_scroll: ScrollContainer
 var _verify_button: Button
 var _install_button: Button
 var _uninstall_button: Button
@@ -52,17 +58,36 @@ var _selected_id := ""
 var _selected_version := ""
 var _detail: Array = []
 var _plan: Array = []
+var _first_open := true
 
 
 func _ready() -> void:
-	_project_root = ProjectSettings.globalize_path("res://").trim_suffix("/")
-	_settings = EditorInterface.get_editor_settings()
+	title = "Tool Import"
+	min_size = Vector2i(720, 480)
+	size = Vector2i(980, 620)
+	close_requested.connect(hide)
+
+	_project_root = Paths.project_root()
 	_backend = Backend.new()
 	_backend.finished.connect(_on_backend_finished)
 
 	_build_ui()
-	_load_settings()
+
+
+## Called by the plugin before the window is shown.
+func open() -> void:
+	if not visible:
+		popup_centered(size)
+	_refresh_registry_row()
 	_refresh()
+
+	# A first run with no CLI has nothing useful to show, and "the CLI was not found" in the
+	# status line is a dead end unless the user knows about Settings. Open it once, and only
+	# once: after that the message stands on its own.
+	if _first_open and Paths.resolve_cli() == "":
+		_first_open = false
+		_on_settings_pressed()
+	_first_open = false
 
 
 # ---------------------------------------------------------------------------
@@ -70,41 +95,42 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 
 func _build_ui() -> void:
-	custom_minimum_size = Vector2(360, 400)
-
-	_registry_edit = LineEdit.new()
-	_registry_edit.placeholder_text = "path to the ToolRegistry checkout"
-	_cli_edit = LineEdit.new()
-	_cli_edit.placeholder_text = "path to apps/cli/bin/utool.js"
-	_node_edit = LineEdit.new()
-	_node_edit.placeholder_text = "node"
-
-	# The paths are the one thing a first run cannot guess, so each field gets a picker. Typing
-	# a Windows path with a backslash is exactly the step where a first run goes wrong.
-	var config := GridContainer.new()
-	config.columns = 2
-	config.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	config.add_child(_label("Registry"))
-	config.add_child(_path_row(_registry_edit, FileDialog.FILE_MODE_OPEN_DIR, PackedStringArray()))
-	config.add_child(_label("CLI"))
-	config.add_child(_path_row(
-		_cli_edit, FileDialog.FILE_MODE_OPEN_FILE, PackedStringArray(["*.js ; utool.js"])))
-	config.add_child(_label("Node"))
-	config.add_child(_path_row(
-		_node_edit, FileDialog.FILE_MODE_OPEN_FILE, PackedStringArray(["*.exe ; node.exe"])))
-	add_child(config)
+	var root := VBoxContainer.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.offset_left = 8
+	root.offset_top = 8
+	root.offset_right = -8
+	root.offset_bottom = -8
+	add_child(root)
 
 	var toolbar := HBoxContainer.new()
-	_search_edit = LineEdit.new()
-	_search_edit.placeholder_text = "filter by name"
-	_search_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_search_edit.text_changed.connect(func(_text: String) -> void: _rebuild_list())
+	root.add_child(toolbar)
+
+	# The registry in effect, as a leaf name with the full value in the tooltip: a deep checkout
+	# in an editable field pushed everything else off the row in the Unity version, and this is
+	# the same fix.
+	_registry_label = Label.new()
+	_registry_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_registry_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	toolbar.add_child(_registry_label)
+
 	var refresh_button := Button.new()
 	refresh_button.text = "Refresh"
 	refresh_button.pressed.connect(_on_refresh_pressed)
-	toolbar.add_child(_search_edit)
 	toolbar.add_child(refresh_button)
-	add_child(toolbar)
+
+	var settings_button := Button.new()
+	settings_button.text = "Settings"
+	settings_button.pressed.connect(_on_settings_pressed)
+	toolbar.add_child(settings_button)
+
+	toolbar.add_child(VSeparator.new())
+
+	_search_edit = LineEdit.new()
+	_search_edit.placeholder_text = "filter by name"
+	_search_edit.custom_minimum_size = Vector2(200, 0)
+	_search_edit.text_changed.connect(func(_text: String) -> void: _rebuild_list())
+	toolbar.add_child(_search_edit)
 
 	var split := HSplitContainer.new()
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -179,24 +205,23 @@ func _build_ui() -> void:
 	plan_header.text = "Plan"
 	details.add_child(plan_header)
 
-	# Horizontal scrolling only: a planned path is longer than this dock, and the file name is
-	# the end of the line. The block itself grows downward with the pane.
-	var plan_scroll := ScrollContainer.new()
-	plan_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	plan_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	details.add_child(plan_scroll)
+	# Both scrollbars are "when needed": a short plan shows no bars, a long path scrolls
+	# sideways, and past PLAN_MAX_HEIGHT the block scrolls itself.
+	_plan_scroll = ScrollContainer.new()
+	_plan_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_plan_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.add_child(_plan_scroll)
 
 	_plan_box = VBoxContainer.new()
 	_plan_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	plan_scroll.add_child(_plan_box)
+	_plan_scroll.add_child(_plan_box)
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(_status)
+	root.add_child(_status)
 
 	_set_busy(true)
-	_render_empty("Pick the registry and CLI paths above, then press Refresh.")
-
+	_render_empty("Press Refresh to list the registry.")
 	# Godot 4.4+ translates a Control's text through the editor's own catalogue, which turned
 	# "Node" into 节点 and "Install" into 安装 while "Registry" stayed English - a half-translated
 	# pane reads as a broken one. Older 4.x does not translate these strings at all, so the guard
@@ -210,55 +235,6 @@ func _label(text: String) -> Label:
 	return label
 
 
-## A path field and its picker, side by side.
-func _path_row(edit: LineEdit, mode: int, filters: PackedStringArray) -> HBoxContainer:
-	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var row := HBoxContainer.new()
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-
-	var button := Button.new()
-	button.text = "..."
-	button.tooltip_text = "Choose a folder" if mode == FileDialog.FILE_MODE_OPEN_DIR else "Choose a file"
-	button.pressed.connect(func() -> void: _pick_path(edit, mode, filters))
-
-	row.add_child(edit)
-	row.add_child(button)
-	return row
-
-
-func _pick_path(edit: LineEdit, mode: int, filters: PackedStringArray) -> void:
-	var dialog := FileDialog.new()
-	dialog.file_mode = mode
-	dialog.access = FileDialog.ACCESS_FILESYSTEM
-	dialog.filters = filters
-
-	var current := edit.text.strip_edges()
-	if current == "":
-		dialog.current_dir = _project_root
-	elif mode == FileDialog.FILE_MODE_OPEN_FILE:
-		dialog.current_dir = current.get_base_dir()
-	else:
-		dialog.current_dir = current
-
-	dialog.file_selected.connect(func(file: String) -> void:
-		dialog.queue_free()
-		edit.text = file
-		_persist_settings()
-		_on_refresh_pressed()
-	)
-	dialog.dir_selected.connect(func(directory: String) -> void:
-		dialog.queue_free()
-		edit.text = directory
-		_persist_settings()
-		_on_refresh_pressed()
-	)
-	dialog.canceled.connect(func() -> void: dialog.queue_free())
-	dialog.confirmed.connect(func() -> void: dialog.queue_free())
-	add_child(dialog)
-	_disable_auto_translation(dialog)
-	dialog.popup_centered_ratio(0.5)
-
-
 func _disable_auto_translation(node: Node) -> void:
 	if node.get("auto_translate_mode") != null:
 		node.set("auto_translate_mode", 2)  # AUTO_TRANSLATE_MODE_DISABLED
@@ -267,38 +243,30 @@ func _disable_auto_translation(node: Node) -> void:
 
 
 # ---------------------------------------------------------------------------
-# settings
+# configuration
 # ---------------------------------------------------------------------------
 
-func _load_settings() -> void:
-	_registry_edit.text = _setting(SETTING_REGISTRY, "")
-	_cli_edit.text = _setting(SETTING_CLI, "")
-	_node_edit.text = _setting(SETTING_NODE, "node")
-	_registry_edit.text_submitted.connect(func(_t: String) -> void: _on_refresh_pressed())
-	_cli_edit.text_submitted.connect(func(_t: String) -> void: _on_refresh_pressed())
+## The registry in effect, in the toolbar: a leaf name, with the full value on hover.
+func _refresh_registry_row() -> void:
+	var registry := Paths.resolve_registry()
+	_registry_label.text = "Registry: " + Paths.leaf_name(registry)
+	_registry_label.tooltip_text = registry
 
 
-## Read one editor setting, with a fallback.
+## Open the settings window, or bring the existing one forward.
 ##
-## `EditorSettings.get_setting` takes the key and nothing else. Passing a default was a mistake
-## that only a compiler could catch, and there was no compiler here - so the wrapper also keeps
-## the default-vs-absent question in ONE place instead of at three call sites.
-func _setting(key: String, fallback: String) -> String:
-	if not _settings.has_setting(key):
-		return fallback
-	var value: Variant = _settings.get_setting(key)
-	return fallback if value == null else str(value)
-
-
-func _persist_settings() -> void:
-	_settings.set_setting(SETTING_REGISTRY, _registry_edit.text.strip_edges())
-	_settings.set_setting(SETTING_CLI, _cli_edit.text.strip_edges())
-	_settings.set_setting(SETTING_NODE, _node_edit.text.strip_edges())
-
-
-func _node_path() -> String:
-	var configured := _node_edit.text.strip_edges()
-	return configured if configured != "" else "node"
+## One instance: it holds what the user typed, and a second copy would silently discard the
+## first one's unsaved edits.
+func _on_settings_pressed() -> void:
+	if _settings_window == null or not is_instance_valid(_settings_window):
+		_settings_window = SettingsWindow.new()
+		add_child(_settings_window)
+		_settings_window.saved.connect(func() -> void:
+			_refresh_registry_row()
+			_refresh()
+		)
+		_disable_auto_translation(_settings_window)
+	_settings_window.popup_centered()
 
 
 func _engine_version() -> String:
@@ -310,7 +278,7 @@ func _engine_version() -> String:
 func _common_arguments() -> PackedStringArray:
 	return PackedStringArray([
 		"--records",
-		"--registry", _registry_edit.text.strip_edges(),
+		"--registry", Paths.resolve_registry(),
 		"--engine", ENGINE,
 		"--host-godot", _engine_version(),
 		"--project", _project_root,
@@ -328,22 +296,25 @@ func _reference() -> String:
 # ---------------------------------------------------------------------------
 
 func _run(arguments: PackedStringArray) -> bool:
-	_persist_settings()
 	_set_busy(true)
 
-	var cli := _cli_edit.text.strip_edges()
+	var cli := Paths.resolve_cli()
 	if cli == "":
 		_set_busy(false)
-		_render_empty("Pick the registry and CLI paths above, then press Refresh.")
+		_render_empty(
+			"The utool backend CLI was not found.\n"
+			+ "Open Settings and point it at apps/cli/bin/utool.js, set UTOOL_CLI, "
+			+ "or place a ToolImport checkout beside this project."
+		)
 		return false
 	if not FileAccess.file_exists(cli):
 		_set_busy(false)
 		_render_empty("No file at that CLI path:\n" + cli)
 		return false
 
-	if not _backend.run(_node_path(), cli, arguments):
+	if not _backend.run(Paths.resolve_node(), cli, arguments):
 		_set_busy(false)
-		_render_empty("Could not start Node. Set the Node executable path.")
+		_render_empty("Could not start Node. Set the Node executable path in Settings.")
 		return false
 	return true
 
@@ -508,7 +479,9 @@ func _on_list_gui_input(event: InputEvent) -> void:
 	_list.select(index)
 	_on_tool_selected(index)
 	_show_version_menu(index)
-	accept_event()
+	# Swallow the right-click so the list does not also act on it. `accept_event` belongs to
+	# Control, and this class is a Window, so it is the list that marks the event handled.
+	_list.accept_event()
 
 
 # ---------------------------------------------------------------------------
@@ -902,6 +875,7 @@ func _render_plan() -> void:
 		child.queue_free()
 
 	if _plan.is_empty():
+		_size_plan_block()
 		_update_buttons()
 		return
 
@@ -910,6 +884,7 @@ func _render_plan() -> void:
 		var failure := Label.new()
 		failure.text = "\n".join(problems)
 		_plan_box.add_child(failure)
+		_size_plan_block()
 		return
 
 	for fields in Backend.of(_plan, "PLANTOOL"):
@@ -931,7 +906,24 @@ func _render_plan() -> void:
 		if fields.size() >= 2:
 			_plan_box.add_child(_plan_line("    %s -> %s" % [fields[0], fields[1]]))
 
+	_size_plan_block()
 	_update_buttons()
+
+
+## Give the plan block a height that matches its content, up to a cap.
+##
+## WHY NOT LET IT GROW FREELY
+## --------------------------
+## A plan is a log: a tool with forty files would push the difference between "verified" and
+## "not verified" off the bottom of the window, which is the one line the user has to read
+## before pressing Install. Below the cap the block is as tall as its lines and the window's own
+## scrollbar takes over; above it, the block scrolls itself. Horizontal scrolling is separate and
+## stays on, because a planned path is longer than the window.
+func _size_plan_block() -> void:
+	var lines := _plan_box.get_child_count()
+	var line_height := _plan_box.get_theme_default_font_size() + 6
+	var wanted := float(lines) * float(line_height) + 8.0
+	_plan_scroll.custom_minimum_size.y = minf(wanted, PLAN_MAX_HEIGHT)
 
 
 func _plan_line(text: String) -> Label:
