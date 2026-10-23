@@ -288,6 +288,9 @@ func _build_ui() -> void:
 
 	_plan_box = VBoxContainer.new()
 	_plan_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# No separation between the lines of a plan: they are one list, and the default gap made a
+	# five-line plan read as five separate paragraphs.
+	_plan_box.add_theme_constant_override("separation", 0)
 	_plan_scroll.add_child(_plan_box)
 
 	# Taken from the editor theme, NOT from _meta: the label's own stylebox was just replaced with
@@ -348,9 +351,23 @@ func _build_ui() -> void:
 	actions.add_child(_uninstall_button)
 	right.add_child(actions)
 
+	# The status line and the addon's own version share one row. The version is not something a
+	# user acts on, but "which release am I running" is the first question when the window
+	# misbehaves, and the status row is the one row that is always there.
+	var status_row := HBoxContainer.new()
+	root.add_child(status_row)
+
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	root.add_child(_status)
+	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_row.add_child(_status)
+
+	var version_label := Label.new()
+	version_label.text = "Tool Import " + _version()
+	version_label.tooltip_text = "The version of this addon, read from plugin.cfg"
+	version_label.add_theme_font_size_override("font_size", 11)
+	version_label.modulate = Color(1, 1, 1, 0.55)
+	status_row.add_child(version_label)
 
 	_set_busy(true)
 	_render_empty("Press Refresh to list the registry.")
@@ -359,6 +376,24 @@ func _build_ui() -> void:
 	# pane reads as a broken one. Older 4.x does not translate these strings at all, so the guard
 	# is a no-op there rather than a broken property name.
 	_disable_auto_translation(self)
+
+
+## The addon's own version, read from the plugin.cfg that ships beside this script.
+##
+## Read rather than hard-coded: a constant would be one more place to forget while releasing, and
+## the file is guaranteed to sit next to this script in any installation layout - including one
+## where the addon is not under res://addons/tool_import at all.
+func _version() -> String:
+	var base := ""
+	var script := get_script()
+	if script != null:
+		base = str(script.resource_path).get_base_dir()
+
+	var config := ConfigFile.new()
+	var path := (base + "/plugin.cfg") if base != "" else "res://addons/tool_import/plugin.cfg"
+	if config.load(path) != OK:
+		return "?"
+	return str(config.get_value("plugin", "version", "?"))
 
 
 func _label(text: String) -> Label:
@@ -1348,6 +1383,9 @@ func _plan_line(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	# One size down from the body: a plan is a list of paths, and the paths are long - the smaller
+	# size buys horizontal room as well as vertical.
+	label.add_theme_font_size_override("font_size", 14)
 	return label
 
 

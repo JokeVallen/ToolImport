@@ -562,6 +562,16 @@ namespace ToolImport.Editor
             var statusMessageStyle = Styles.GetOrCacheStyle(nameof(statusMessage), () => Styles.GetStyle(EditorStyles.miniLabel));
             EditorGUILayout.LabelField(statusMessage, statusMessageStyle);
             if (busy) GUILayout.Label("working...", EditorStyles.miniLabel, GUILayout.Width(80f));
+
+            // The tool's own version, right-aligned on the status row. "Which release am I running"
+            // is the first question when a window misbehaves, and this row is always on screen.
+            var versionStyle = Styles.GetOrCacheStyle("toolImportVersionStyle", () =>
+            {
+                GUIStyle style = Styles.GetStyle(EditorStyles.miniLabel);
+                style.alignment = TextAnchor.MiddleRight;
+                return style;
+            });
+            EditorGUILayout.LabelField("Tool Import " + ToolImportVersion.Value, versionStyle, GUILayout.Width(110f));
             EditorGUILayout.EndHorizontal();
         }
 

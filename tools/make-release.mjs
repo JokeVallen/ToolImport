@@ -64,6 +64,43 @@ function version() {
   return JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 }
 
+/**
+ * Fail when a front end's own version disagrees with package.json.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * The Godot addon reads its version from plugin.cfg and the Unity front end from a constant,
+ * because neither can see this package.json once it has been copied into a project. Both numbers
+ * are therefore edited by hand at release time, and a front end that reports the PREVIOUS release
+ * is the kind of wrong no test notices: the code is right and the label is not.
+ */
+function checkFrontEndVersions(expected) {
+  const sources = [
+    {
+      file: 'frontends/godot-editor/addons/tool_import/plugin.cfg',
+      pattern: /^version="([^"]+)"/m,
+    },
+    {
+      file: 'frontends/unity-editor/Editor/ToolImportVersion.cs',
+      pattern: /Value = "([^"]+)"/,
+    },
+  ];
+
+  for (const source of sources) {
+    const text = readFileSync(path.join(root, source.file), 'utf8');
+    const found = text.match(source.pattern);
+    if (found === null) {
+      throw new Error(`${source.file} has no version to check`);
+    }
+    if (found[1] !== expected) {
+      throw new Error(
+        `${source.file} says ${found[1]} but package.json says ${expected}. ` +
+          'A front end that reports the wrong release cannot be shipped.',
+      );
+    }
+  }
+}
+
 /** Run git and return stdout, failing loudly rather than shipping a half-built archive. */
 function git(args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -86,6 +123,8 @@ function main() {
     rmSync(dist, { recursive: true, force: true });
   }
   mkdirSync(dist, { recursive: true });
+
+  checkFrontEndVersions(version());
 
   const tag = `v${version()}`;
   // The tag has to exist, because `git archive` above is what makes the contents honest. Checked

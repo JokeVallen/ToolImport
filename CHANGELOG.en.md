@@ -9,6 +9,21 @@ of the tool are its own; the metadata format it reads is versioned separately by
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
+## [1.2.1] — 2026-10-23
+
+### Changed
+
+- **Both front ends now show the import tool's own version.** The Godot window prints
+  `Tool Import 1.2.1` at the right of its status row, read from the `plugin.cfg` that ships with
+  the addon; the Unity window prints it at the right of the same row, from a constant - neither
+  front end can see the repository's `package.json` once it has been copied into a project, so the
+  two numbers are maintained separately, and `tools/make-release.mjs` now refuses to build when
+  either disagrees with `package.json`.
+- **The Godot "Installs / Plan" lines are tighter.** Each line carried the container's default
+  separation on top of its own height, so a five-line plan read as five paragraphs. The lines now
+  have no separation between them, sit one size smaller, and the heading sits directly above the
+  first one.
+
 ## [1.2.0] — 2026-10-23
 
 ### Changed
