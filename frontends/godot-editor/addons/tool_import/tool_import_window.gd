@@ -32,10 +32,13 @@ const ENGINE := "godot"
 ## enough to fit a 1080p screen with room left for the editor.
 const WINDOW_SIZE := Vector2i(1000, 660)
 
-## What the list is filtered to. The Unity window offers the same three.
-enum Filter { ALL, INSTALLED, NOT_INSTALLED }
+## What the list is filtered to. The Unity window offers the same eight.
+enum Filter { ALL, INSTALLED, NOT_INSTALLED, THIS_ENGINE, TAG, PROVIDES, INJECTS, DEPENDS_ON }
 
-const FILTER_LABELS := ["All tools", "Installed", "Not installed"]
+const FILTER_LABELS := [
+	"All", "Installed", "Not installed", "This engine",
+	"Tag is", "Provides", "Injects", "Depends on",
+]
 
 var _backend: Backend = null
 var _project_root := ""
@@ -44,11 +47,13 @@ var _settings_window: Window = null
 var _registry_label: Label
 var _search_edit: LineEdit
 var _filter_button: MenuButton
+var _value_button: MenuButton
 var _collapse_button: Button
+var _list_controls: HBoxContainer
+var _detail_panel: PanelContainer
 var _list: ItemList
 var _meta: RichTextLabel
 var _install_edit: LineEdit
-var _defaults_label: Label
 var _installs_header: Label
 var _status: Label
 var _plan_box: VBoxContainer
@@ -58,6 +63,8 @@ var _install_button: Button
 var _uninstall_button: Button
 
 var _filter: Filter = Filter.ALL
+var _filter_value := ""
+var _filter_options := PackedStringArray()
 var _list_collapsed := false
 
 var _tools: Array[PackedStringArray] = []
@@ -144,24 +151,6 @@ func _build_ui() -> void:
 
 	toolbar.add_child(VSeparator.new())
 
-	# The list can be folded away, because the detail pane is the part being read most of the time
-	# and a tool list of three entries does not need a third of the width. Same gesture as the
-	# Unity window's collapse rail.
-	_collapse_button = Button.new()
-	_collapse_button.text = "‹"
-	_collapse_button.tooltip_text = "Hide the tool list"
-	_collapse_button.pressed.connect(_on_collapse_pressed)
-	toolbar.add_child(_collapse_button)
-
-	_filter_button = MenuButton.new()
-	_filter_button.text = FILTER_LABELS[0]
-	_filter_button.flat = false
-	var filter_menu := _filter_button.get_popup()
-	for index in FILTER_LABELS.size():
-		filter_menu.add_item(FILTER_LABELS[index], index)
-	filter_menu.id_pressed.connect(_on_filter_chosen)
-	toolbar.add_child(_filter_button)
-
 	_search_edit = LineEdit.new()
 	_search_edit.placeholder_text = "filter by name"
 	_search_edit.custom_minimum_size = Vector2(200, 0)
@@ -175,11 +164,47 @@ func _build_ui() -> void:
 	# the toolbar and the status line with an empty body between them.
 	root.add_child(split)
 
+	# The list column: a filter row, then the list. The filter acts on this list and reads as a
+	# heading over it, which is why it lives here and not in the toolbar - the same arrangement the
+	# Unity window uses.
+	var left := VBoxContainer.new()
+	left.custom_minimum_size = Vector2(200, 0)
+	split.add_child(left)
+
+	_list_controls = HBoxContainer.new()
+	left.add_child(_list_controls)
+
+	_filter_button = MenuButton.new()
+	_filter_button.text = FILTER_LABELS[0]
+	_filter_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var filter_menu := _filter_button.get_popup()
+	for index in FILTER_LABELS.size():
+		filter_menu.add_item(FILTER_LABELS[index], index)
+	filter_menu.id_pressed.connect(_on_filter_chosen)
+	_list_controls.add_child(_filter_button)
+
+	# The list can be folded away, because the detail pane is the part being read most of the time
+	# and three entries do not need a third of the width. Same gesture as the Unity window's rail.
+	_collapse_button = Button.new()
+	_collapse_button.text = "‹"
+	_collapse_button.tooltip_text = "Hide the tool list"
+	_collapse_button.pressed.connect(_on_collapse_pressed)
+	_list_controls.add_child(_collapse_button)
+
+	# A second row appears only for the modes that take a value, and it is filled from the listing
+	# itself - so it can only offer values that exist. A free-text box would let a typo produce an
+	# empty list, which looks exactly like an empty registry.
+	_value_button = MenuButton.new()
+	_value_button.visible = false
+	_value_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_value_button.get_popup().id_pressed.connect(_on_filter_value_chosen)
+	left.add_child(_value_button)
+
 	_list = ItemList.new()
-	_list.custom_minimum_size = Vector2(200, 0)
+	_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_list.item_selected.connect(_on_tool_selected)
 	_list.gui_input.connect(_on_list_gui_input)
-	split.add_child(_list)
+	left.add_child(_list)
 
 	var right := VBoxContainer.new()
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -192,9 +217,15 @@ func _build_ui() -> void:
 	detail_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	right.add_child(detail_scroll)
 
+	# One dark panel around the whole description AND the Installs block, so the plan reads as the
+	# next section of the same document rather than as a widget bolted underneath.
+	_detail_panel = PanelContainer.new()
+	_detail_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail_scroll.add_child(_detail_panel)
+
 	var details := VBoxContainer.new()
 	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	detail_scroll.add_child(details)
+	_detail_panel.add_child(details)
 
 	_meta = RichTextLabel.new()
 	# BBCode on: the header mixes sizes and styles (name, id, an italic facts line) and the links
@@ -205,8 +236,14 @@ func _build_ui() -> void:
 	_meta.selection_enabled = true
 	_meta.meta_clicked.connect(_on_meta_clicked)
 	_meta.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# The panel paints the background; the label must not paint a second one on top of it.
+	var empty_style := StyleBoxEmpty.new()
+	_meta.add_theme_stylebox_override("normal", empty_style)
 	details.add_child(_meta)
 
+	# The Installs block belongs INSIDE the same dark panel as the rest of the details, not in a
+	# bare strip under it: it is part of the tool's description of itself, and a separate
+	# background made it read as a different kind of thing.
 	_installs_header = Label.new()
 	_installs_header.text = "Installs"
 	details.add_child(_installs_header)
@@ -222,9 +259,14 @@ func _build_ui() -> void:
 	_plan_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_plan_scroll.add_child(_plan_box)
 
-	_defaults_label = Label.new()
-	_defaults_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	right.add_child(_defaults_label)
+	var panel_style: StyleBox = _meta.get_theme_stylebox("normal")
+	if panel_style != null:
+		_detail_panel.add_theme_stylebox_override("panel", panel_style.duplicate())
+	else:
+		var fallback := StyleBoxFlat.new()
+		fallback.bg_color = Color(0.13, 0.13, 0.14)
+		fallback.set_content_margin_all(8)
+		_detail_panel.add_theme_stylebox_override("panel", fallback)
 
 	var destination_header := Label.new()
 	destination_header.text = "Install Into"
@@ -480,6 +522,7 @@ func _on_list_ready(records: Array) -> void:
 		})
 
 	_status.text = "%d tool(s) in the registry." % _tools.size()
+	_refresh_filter_values()
 	_rebuild_list()
 	_refresh_installed()
 
@@ -506,9 +549,7 @@ func _rebuild_list() -> void:
 		var display: String = fields[6] if fields.size() > 6 else id
 		var version: String = fields[1] if fields.size() > 1 else ""
 
-		if _filter == Filter.INSTALLED and not _installed.has(id):
-			continue
-		if _filter == Filter.NOT_INSTALLED and _installed.has(id):
+		if not _passes_filter(fields):
 			continue
 
 		# Prefix match, not substring: typing "core" is meant to find "Core Editor Utils", and
@@ -541,15 +582,122 @@ func _rebuild_list() -> void:
 			_render_empty("No tool in this registry supports Godot yet.")
 
 
+## Does this tool pass the filter chosen in the dropdown?
+func _passes_filter(fields: PackedStringArray) -> bool:
+	var id: String = fields[0] if fields.size() > 0 else ""
+	match _filter:
+		Filter.INSTALLED:
+			return _installed.has(id)
+		Filter.NOT_INSTALLED:
+			return not _installed.has(id)
+		Filter.THIS_ENGINE:
+			return _supports_engine(fields)
+		Filter.TAG, Filter.PROVIDES, Filter.INJECTS, Filter.DEPENDS_ON:
+			# No value chosen yet: show everything, so choosing a mode never empties the list
+			# before the user has said what to match.
+			if _filter_value == "":
+				return true
+			for raw in _filter_source(fields).split(","):
+				if raw.strip_edges() == _filter_value:
+					return true
+			return false
+		_:
+			return true
+
+
+## The field a value-taking filter matches on.
+##
+## Depends-on is the reverse of the others: it answers "what would break if this went away", so
+## the value is the id of a tool and the match is on what this one DECLARES it needs.
+func _filter_source(fields: PackedStringArray) -> String:
+	match _filter:
+		Filter.TAG:
+			return fields[7] if fields.size() > 7 else ""
+		Filter.PROVIDES:
+			return fields[4] if fields.size() > 4 else ""
+		Filter.INJECTS:
+			return fields[5] if fields.size() > 5 else ""
+		Filter.DEPENDS_ON:
+			var ids := PackedStringArray()
+			for raw in (fields[8] if fields.size() > 8 else "").split(","):
+				var entry := raw.strip_edges()
+				if entry == "":
+					continue
+				ids.append(entry.split("@")[0])
+			return ",".join(ids)
+		_:
+			return ""
+
+
+func _filter_takes_value() -> bool:
+	return (
+		_filter == Filter.TAG
+		or _filter == Filter.PROVIDES
+		or _filter == Filter.INJECTS
+		or _filter == Filter.DEPENDS_ON
+	)
+
+
+## Every value the current mode can match on, taken from the listing itself.
+##
+## Collected rather than hard-coded: a dropdown that offers a value nothing has would filter to an
+## empty list and look like a defect. Depends-on offers the tool ids, because the question it asks
+## is "which tools need THIS one".
+func _filter_value_options() -> PackedStringArray:
+	var values := {}
+	for fields in _tools:
+		if _filter == Filter.DEPENDS_ON:
+			values[fields[0]] = true
+			continue
+		for raw in _filter_source(fields).split(","):
+			var value := raw.strip_edges()
+			if value != "":
+				values[value] = true
+	var options := PackedStringArray(values.keys())
+	options.sort()
+	return options
+
+
 func _on_filter_chosen(index: int) -> void:
 	_filter = index as Filter
 	_filter_button.text = FILTER_LABELS[index]
+	_filter_value = ""
+	_refresh_filter_values()
+	_rebuild_list()
+
+
+## Rebuild the value dropdown for the current mode, or hide it when the mode takes no value.
+func _refresh_filter_values() -> void:
+	_filter_options = _filter_value_options() if _filter_takes_value() else PackedStringArray()
+	if _filter_options.is_empty():
+		_value_button.visible = false
+		return
+
+	if _filter_value == "":
+		_filter_value = _filter_options[0]
+	_value_button.text = _filter_value
+	_value_button.visible = true
+
+	var menu := _value_button.get_popup()
+	menu.clear()
+	for index in _filter_options.size():
+		menu.add_item(_filter_options[index], index)
+
+
+func _on_filter_value_chosen(index: int) -> void:
+	if index < 0 or index >= _filter_options.size():
+		return
+	_filter_value = _filter_options[index]
+	_value_button.text = _filter_value
 	_rebuild_list()
 
 
 func _on_collapse_pressed() -> void:
 	_list_collapsed = not _list_collapsed
+	# The filter row stays: it is the heading of the column, and a collapsed list whose filter
+	# also disappeared would leave no way to tell what the list would contain if reopened.
 	_list.visible = not _list_collapsed
+	_value_button.visible = _filter_takes_value() and not _list_collapsed
 	_collapse_button.text = "›" if _list_collapsed else "‹"
 	_collapse_button.tooltip_text = "Show the tool list" if _list_collapsed else "Hide the tool list"
 
@@ -705,11 +853,11 @@ func _render_detail() -> void:
 	# The header is three lines, each a different size: the name, the id it is installed under,
 	# and the facts. The id is what a user needs when the display name and the package name
 	# differ, and it is quieter than the name because it is read second.
-	_meta.append_text("[font_size=18][b]%s[/b][/font_size]" % _escape(display_name))
-	_meta.append_text("\n[font_size=11]%s[/font_size]" % _escape(_selected_id))
+	_meta.append_text("[font_size=20][b]%s[/b][/font_size]" % _escape(display_name))
+	_meta.append_text("\n[font_size=14]%s[/font_size]" % _escape(_selected_id))
 	if facts.size() > 0:
 		_meta.append_text(
-			"\n[font_size=11][i]%s[/i][/font_size]" % _escape("  •  ".join(facts))
+			"\n[font_size=14][i]%s[/i][/font_size]" % _escape("  •  ".join(facts))
 		)
 
 	_render_links()
@@ -725,7 +873,9 @@ func _render_detail() -> void:
 	_list_section("Tags", Backend.detail(_detail, "tags"))
 	_render_dependencies()
 
-	_defaults_label.text = _defaults_text()
+	# The default destination is a HINT inside the field, not a sentence above it: it describes
+	# what an empty field will do, and the field is exactly where that question is asked.
+	_install_edit.placeholder_text = _defaults_text()
 	_installs_header.visible = true
 	# The Installs block is the plan when there is one and the declared target otherwise; the two
 	# are never shown together, because they answer the same question.
@@ -835,7 +985,11 @@ func _render_links() -> void:
 	for entry in links:
 		if entry[1] == "":
 			continue
-		parts.append("[url=%s]%s[/url]" % [entry[1], _escape(entry[0])])
+		# Blue, bold and italic: a link has to look like one at a glance, and the rest of the
+		# pane is neither coloured nor bold, so the difference is unambiguous.
+		parts.append("[color=#4b9bff][b][i][url=%s]%s[/url][/i][/b][/color]" % [
+			entry[1], _escape(entry[0])
+		])
 	if parts.is_empty():
 		return
 	_meta.append_text("\n" + "   •   ".join(parts))
@@ -998,6 +1152,11 @@ func _render_plan() -> void:
 	for child in _plan_box.get_children():
 		_plan_box.remove_child(child)
 		child.queue_free()
+
+	# The heading names what is actually there. "Installs" before a plan and "Plan" once one has
+	# been verified, because after verifying the block IS the plan, and a heading that still said
+	# "Installs" left the user looking for the plan they had just produced.
+	_installs_header.text = "Installs" if _plan.is_empty() else "Plan"
 
 	# No plan yet, so the block answers the same question from the declaration instead. The two
 	# are mutually exclusive on purpose: a plan and a target both say what will land where, and
