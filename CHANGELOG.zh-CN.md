@@ -8,6 +8,18 @@
 
 **语言**：[中文](CHANGELOG.zh-CN.md) · [English](CHANGELOG.en.md) · [返回目录](README.md)
 
+## [1.2.2] — 2026-10-24
+
+### 修复
+
+- **在旧 Node 上整个工具加载不起来。** `containers.js` 用**具名导入**去取 `zstdDecompressSync`，
+  而具名导入在模块**链接阶段**就解析：Node 的 zlib 没有这个导出时，整个模块在跑起来之前就失败，
+  文件里那句“没有 zstd 编解码器”的提示永远不会执行。用户看到的是 `node:zlib` 报的一条错误，
+  既没提这个工具，也没提该升到哪个版本。现在改成命名空间导入，提示能正常出现。
+- **最低 Node 版本从 20.11 改为 22.15。** zstd 解码器是 22.15 才进 `node:zlib` 的，原来的声明是错的：
+  按它装的环境会在加载校验器时崩溃。三个 `package.json` 的 `engines`、README 与中英文变更记录都改成
+  22.15，并新增 `packages/utool-core/test/node-floor.test.js` 同时盯住版本号与“不得用具名导入”这两件事。
+
 ## [1.2.1] — 2026-10-23
 
 ### 变更

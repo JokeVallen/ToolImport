@@ -13,6 +13,6 @@ namespace ToolImport.Editor
     /// </remarks>
     internal static class ToolImportVersion
     {
-        public const string Value = "1.2.1";
+        public const string Value = "1.2.2";
     }
 }

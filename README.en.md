@@ -82,6 +82,9 @@ the registry and the CLI are found by walking up from the project, and the Setti
 
 ## Getting started
 
+Requires **Node.js 22.15 or newer** (`.tar.zst` artifacts use the zstd codec that shipped in
+`node:zlib` at 22.15) and git.
+
 ```pwsh
 npm install                                          # the only dependency is `yaml`
 

@@ -1,6 +1,6 @@
 {
   "name": "@toolimport/utool-core",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "description": "Engine-agnostic core: .yaml parsing, registry validation, dependency resolution, artifact verification, installation and receipts.",
@@ -12,7 +12,7 @@
     "./errors": "./src/errors.js"
   },
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22.15"
   },
   "dependencies": {
     "yaml": "^2.6.1"

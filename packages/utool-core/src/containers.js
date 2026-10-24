@@ -264,8 +264,17 @@ function normalisePrefix(subdirectory) {
 // readers, kept here because they are core containers and nothing else uses them
 // --------------------------------------------------------------------------
 
-import { gunzipSync, zstdDecompressSync } from 'node:zlib';
-import { inflateRawSync } from 'node:zlib';
+// A namespace import, not named imports.
+//
+// `import { zstdDecompressSync } from 'node:zlib'` is resolved when the module is LINKED, before
+// any of this file's code runs: on a Node whose zlib has no such export the whole module fails to
+// load, and the guard in decompressZstd never gets a chance to explain anything. The user sees
+// "does not provide an export named 'zstdDecompressSync'" from inside node:zlib, which names
+// neither this tool nor the version that would fix it.
+import * as zlib from 'node:zlib';
+
+/** The first Node release whose zlib exposes a zstd codec (v22.15.0). */
+export const ZSTD_MIN_NODE = '22.15';
 
 /** @returns {{name: string, size: number, data: Buffer|null, directory: boolean}[]} */
 function tarEntries(bytes, format) {
@@ -274,7 +283,7 @@ function tarEntries(bytes, format) {
     raw = decompressZstd(bytes);
   } else {
     try {
-      raw = gunzipSync(bytes);
+      raw = zlib.gunzipSync(bytes);
     } catch (cause) {
       throw new ArtifactError('E-ARTIFACT-GZIP', `not readable as gzip: ${cause.message}`);
     }
@@ -285,21 +294,21 @@ function tarEntries(bytes, format) {
 /**
  * Decompress a zstd frame.
  *
- * Node has had a zstd codec since v22, so a real .tar.zst needs no dependency.
+ * Node has had a zstd codec since v22.15, so a real .tar.zst needs no dependency.
  * The shipped sample is a valid frame holding one uncompressed block, which this
  * also accepts; a raw block is read directly so a sample can be built without a
  * zstd library on the authoring side.
  */
 function decompressZstd(bytes) {
-  if (typeof zstdDecompressSync !== 'function') {
+  if (typeof zlib.zstdDecompressSync !== 'function') {
     throw new ArtifactError(
       'E-ARTIFACT-CODEC',
-      'this Node build has no zstd codec; .tar.zst requires Node 22 or newer',
+      `this Node (${process.versions.node}) has no zstd codec; .tar.zst needs Node ${ZSTD_MIN_NODE} or newer`,
     );
   }
   // Try the real codec first: it handles both compressed and raw blocks.
   try {
-    return zstdDecompressSync(bytes);
+    return zlib.zstdDecompressSync(bytes);
   } catch (cause) {
     throw new ArtifactError('E-ARTIFACT-ZSTD', `not readable as a zstd frame: ${cause.message}`);
   }
@@ -362,7 +371,7 @@ function inflateEntry(bytes, entry) {
   const start = offset + 30 + nameLength + extraLength;
   const data = bytes.subarray(start, start + entry.compressedSize);
   if (entry.method === 0) return Buffer.from(data);
-  if (entry.method === 8) return inflateRawSync(data);
+  if (entry.method === 8) return zlib.inflateRawSync(data);
   throw new ArtifactError(
     'E-ARTIFACT-ZIP-METHOD',
     `'${entry.name}' uses compression method ${entry.method}; only stored (0) and deflate (8) are supported`,

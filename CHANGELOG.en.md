@@ -9,6 +9,21 @@ of the tool are its own; the metadata format it reads is versioned separately by
 
 **Language**: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh-CN.md) · [back to index](README.md)
 
+## [1.2.2] — 2026-10-24
+
+### Fixed
+
+- **The tool failed to load at all on an older Node.** `containers.js` reached
+  `zstdDecompressSync` through a NAMED import, and a named import is resolved when the module is
+  linked - before any of its code runs. On a Node whose zlib has no such export the module never
+  loaded, so the file's own "no zstd codec" guard never executed and the user got an error from
+  inside `node:zlib` that named neither this tool nor the version that would fix it.
+- **The minimum is Node 22.15, not 20.11.** The zstd codec reached `node:zlib` in 22.15; the old
+  claim was wrong, and a machine that trusted it crashed while loading the validator. The three
+  `package.json` files, both READMEs and both changelogs say 22.15 now, and
+  `packages/utool-core/test/node-floor.test.js` guards both the number and the "no named import"
+  rule.
+
 ## [1.2.1] — 2026-10-23
 
 ### Changed

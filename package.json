@@ -1,13 +1,13 @@
 {
   "name": "toolimport",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "description": "Engine-agnostic backend for the ToolRegistry import tool: parses the .yaml format, resolves dependencies, verifies and installs sealed artifacts, and records receipts. Runs entirely outside Unity.",
   "license": "MIT",
   "author": "DevCat",
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22.15"
   },
   "workspaces": [
     "packages/*",

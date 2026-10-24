@@ -1,6 +1,6 @@
 {
   "name": "@toolimport/provider-engine-unity",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "description": "Unity engine adapter: the unitypackage container, Unity version comparison and .NET API level comparison. Loaded by the import tool; the core knows nothing about Unity without it.",
@@ -11,7 +11,7 @@
     "./unitypackage": "./src/unitypackage.js"
   },
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22.15"
   },
   "dependencies": {
     "@toolimport/utool-core": "*"

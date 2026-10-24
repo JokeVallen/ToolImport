@@ -59,6 +59,9 @@ Godot 插件就是一个普通 addons 目录——把 `frontends/godot-editor/ad
 
 ## 快速开始
 
+需要 **Node.js 22.15 以上**（`.tar.zst` 制品用 `node:zlib` 自带的 zstd 解码器，它从 22.15 才有）
+与 git。
+
 ```pwsh
 npm install                                          # 唯一依赖是 `yaml`
 

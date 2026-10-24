@@ -74,6 +74,7 @@ export {
   ContainerRegistry,
   createCoreContainerRegistry,
   fileHandler,
+  ZSTD_MIN_NODE,
 } from './containers.js';
 
 export {
